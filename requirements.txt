@@ -14,3 +14,6 @@ graphifyy
 numpy
 scipy
 # erddapy  # opcional: cliente Python para ERDDAP (usamos URLs directas en vez)
+
+# Gemini AI integration
+google-generativeai>=0.8.0

@@ -361,3 +361,102 @@ async def get_graph_report():
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Reporte no encontrado.")
     return FileResponse(path, media_type="text/markdown")
+
+
+# ── GEMINI AI Endpoints ───────────────────────────────────────────────────────
+
+@router.get("/api/ai/status")
+async def get_ai_status():
+    """Verifica la conectividad con Gemini. Retorna latencia y estado."""
+    try:
+        from src.pipeline.gemini_analyst import quick_status
+        return quick_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/ai/analyze/{h3_index}")
+async def analyze_cell(h3_index: str):
+    """Análisis narrativo de riesgo para una celda H3 específica."""
+    gj = _load_geojson("data/risk_hotspots.geojson")
+    cell_props = {}
+    for feat in gj.get("features", []):
+        if feat.get("properties", {}).get("h3_index") == h3_index:
+            cell_props = feat["properties"]
+            break
+    if not cell_props:
+        cell_props = {"h3_index": h3_index, "vessel_count": 0, "ipa_100": 0}
+    try:
+        from src.pipeline.gemini_analyst import analyze_hotspot
+        from datetime import datetime
+        result = analyze_hotspot(
+            h3_index     = h3_index,
+            ipa_score    = float(cell_props.get("ipa_100", 0)),
+            vessel_count = int(cell_props.get("vessel_count", 0)),
+            gap_count    = int(cell_props.get("gap_count", 0)),
+            enc_count    = int(cell_props.get("encounter_count", 0)),
+            loi_count    = int(cell_props.get("loitering_count", 0)),
+            month        = datetime.now().month,
+        )
+        return {"h3_index": h3_index, "cell_data": cell_props, "analysis": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/ai/region-summary")
+async def get_region_summary():
+    """Resumen ejecutivo del área de estudio para grant proposals."""
+    try:
+        from src.pipeline.gemini_analyst import synthesize_region
+        return synthesize_region(top_n=5)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/ai/methods")
+async def get_methods_text():
+    """Párrafo de Métodos para paper científico sobre el IPA."""
+    try:
+        from src.pipeline.gemini_analyst import explain_ipa_for_paper
+        text = explain_ipa_for_paper()
+        return {"methods_text": text, "word_count": len(text.split())}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/ai/top-hotspots")
+async def analyze_top_hotspots(limit: int = 3):
+    """Análisis Gemini de las N celdas de mayor presión antrópica."""
+    from datetime import datetime
+    gj = _load_geojson("data/risk_hotspots.geojson")
+    features = sorted(
+        gj.get("features", []),
+        key=lambda x: x.get("properties", {}).get("ipa_100", 0),
+        reverse=True,
+    )[:limit]
+    if not features:
+        return {"analyses": [], "message": "No hotspot data. Run POST /api/refresh first."}
+    try:
+        from src.pipeline.gemini_analyst import analyze_hotspot
+        month = datetime.now().month
+        analyses = []
+        for feat in features:
+            props = feat.get("properties", {})
+            analysis = analyze_hotspot(
+                h3_index     = props.get("h3_index", ""),
+                ipa_score    = float(props.get("ipa_100", 0)),
+                vessel_count = int(props.get("vessel_count", 0)),
+                gap_count    = int(props.get("gap_count", 0)),
+                enc_count    = int(props.get("encounter_count", 0)),
+                loi_count    = int(props.get("loitering_count", 0)),
+                month        = month,
+            )
+            analyses.append({
+                "h3_index":  props.get("h3_index"),
+                "ipa_100":   props.get("ipa_100"),
+                "ipa_level": props.get("ipa_level"),
+                "analysis":  analysis,
+            })
+        return {"analyses": analyses, "count": len(analyses)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

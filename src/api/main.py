@@ -3,6 +3,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .routes import router
 import os
+from dotenv import load_dotenv
+load_dotenv()  # Carga GFW_API_TOKEN y GEMINI_API_KEY desde .env
 
 app = FastAPI(
     title="Megafauna-Vessel Collision Risk API",
