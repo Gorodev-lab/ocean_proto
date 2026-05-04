@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# Environment
+.env
+
+# Data files (too large for git)
+data/*.csv
+data/*.geojson
+data/*.json
+data/oceanographic/
+data/knowledge_graph/
+
+# GFW SAR bulk download
+d1f2dc60-3841-11f1-bbe6-bfd704486e22/
+d1f2dc60-3841-11f1-bbe6-bfd704486e22.zip
+dwca-zd_594_1deg-v1.0/
+dwca-zd_594_1deg-v1.0.zip
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pytest
+.pytest_cache/

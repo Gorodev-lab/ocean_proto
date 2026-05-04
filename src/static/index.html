@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZOHAR // Ocean Proto — Megafauna-Vessel Collision Risk Analyzer</title>
+    <meta name="description" content="Geospatial analysis platform for cetacean-vessel collision risk assessment in the Gulf of California, powered by Global Fishing Watch and OBIS data.">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <!-- Google Fonts — Esoteria Design System -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* ── Esoteria Design System v1.0 — Core Tokens ── */
+        :root {
+            --color-background: #0A0A0A;
+            --color-surface: #111111;
+            --color-border: #222222;
+            --color-text-primary: #FFFFFF;
+            --color-text-secondary: #AAAAAA;
+            --color-text-muted: #666666;
+            --color-text-disabled: #444444;
+            --color-accent: #C0392B;
+            --color-accent-hover: #A93226;
+            --color-status-active: #27AE60;
+            --color-status-pending: #F39C12;
+            --color-status-alert: #C0392B;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'IBM Plex Mono', 'Inter', system-ui, -apple-system, monospace;
+            background-color: var(--color-background);
+            color: var(--color-text-secondary);
+        }
+
+        /* === HEADER === */
+        #header {
+            padding: 12px 24px;
+            background: var(--color-background);
+            border-bottom: 1px solid var(--color-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+            z-index: 1000;
+        }
+        #header h1 {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 700;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--color-text-primary);
+            letter-spacing: 3px;
+        }
+        #header h1 span.accent { color: var(--color-accent); }
+        #header small {
+            display: block;
+            color: var(--color-text-muted);
+            font-size: 12px;
+            font-weight: 500;
+            font-family: 'IBM Plex Mono', monospace;
+            letter-spacing: 0.02em;
+            margin-top: 2px;
+        }
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* === BUTTONS === */
+        .btn {
+            background: transparent;
+            color: var(--color-accent);
+            border: 1px solid var(--color-accent);
+            padding: 8px 16px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            cursor: pointer;
+            transition: background 200ms ease, color 200ms ease;
+            white-space: nowrap;
+        }
+        .btn:disabled {
+            border-color: var(--color-border);
+            color: var(--color-text-disabled);
+            cursor: not-allowed;
+        }
+        .btn:hover:not(:disabled) {
+            background: var(--color-accent);
+            color: #FFFFFF;
+        }
+
+        /* === MAP === */
+        #map {
+            width: 100%;
+            height: calc(100vh - 56px);
+            background-color: var(--color-background);
+        }
+
+        /* === LAYER CONTROL PANEL === */
+        .layer-panel {
+            position: absolute;
+            top: 70px;
+            right: 14px;
+            z-index: 1000;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            padding: 16px 18px;
+            min-width: 240px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        .layer-panel h3 {
+            margin: 0 0 12px 0;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--color-text-muted);
+            letter-spacing: 0.02em;
+            border-bottom: 1px solid var(--color-border);
+            padding-bottom: 8px;
+        }
+        .layer-section-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--color-text-disabled);
+            letter-spacing: 0.02em;
+            margin: 10px 0 4px 0;
+            padding-top: 6px;
+            border-top: 1px solid var(--color-border);
+        }
+        .layer-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 0;
+            cursor: pointer;
+            transition: opacity 200ms ease;
+        }
+        .layer-item:hover { opacity: 0.85; }
+        .layer-item input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border: 1px solid var(--color-border);
+            background: transparent;
+            cursor: pointer;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .layer-item input[type="checkbox"]:checked {
+            border-color: var(--layer-color, var(--color-accent));
+            background: var(--layer-color, var(--color-accent));
+        }
+        .layer-item input[type="checkbox"]:checked::after {
+            content: "✓";
+            position: absolute;
+            top: -1px;
+            left: 2px;
+            font-size: 11px;
+            color: var(--color-background);
+            font-weight: 700;
+        }
+        .layer-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .layer-label {
+            font-size: 14px;
+            font-weight: 400;
+            color: var(--color-text-primary);
+            letter-spacing: 0.01em;
+        }
+        .layer-count {
+            margin-left: auto;
+            font-size: 12px;
+            color: var(--color-text-muted);
+            font-weight: 400;
+        }
+
+        /* === STATS BAR === */
+        .stats-bar {
+            position: absolute;
+            bottom: 30px;
+            left: 14px;
+            z-index: 1000;
+            display: flex;
+            gap: 1px;
+            flex-wrap: wrap;
+            max-width: calc(100vw - 300px);
+        }
+        .stat-card {
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            padding: 10px 16px;
+        }
+        .stat-card .stat-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            font-family: 'IBM Plex Mono', monospace;
+            line-height: 1;
+        }
+        .stat-card .stat-label {
+            font-size: 12px;
+            color: var(--color-text-muted);
+            font-weight: 500;
+            font-family: 'IBM Plex Mono', monospace;
+            letter-spacing: 0.02em;
+            margin-top: 4px;
+        }
+
+        /* === LEGEND === */
+        .legend {
+            background: var(--color-surface) !important;
+            padding: 14px 16px !important;
+            border: 1px solid var(--color-border) !important;
+            color: var(--color-text-secondary);
+            line-height: 1.6;
+            font-size: 14px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        .legend h4 {
+            margin: 0 0 8px 0;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--color-text-muted);
+            letter-spacing: 0.02em;
+        }
+        .legend i {
+            width: 14px;
+            height: 14px;
+            float: left;
+            margin-right: 8px;
+            opacity: 0.9;
+        }
+
+        /* === INFO PANEL (Click details) === */
+        .info-panel {
+            position: absolute;
+            bottom: 30px;
+            right: 14px;
+            z-index: 1000;
+            background: var(--color-surface);
+            border: 1px solid var(--color-accent);
+            padding: 18px 20px;
+            min-width: 260px;
+            max-width: 320px;
+            font-family: 'IBM Plex Mono', monospace;
+            display: none;
+        }
+        .info-panel.visible { display: block; }
+        .info-panel .info-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--color-border);
+            padding-bottom: 8px;
+        }
+        .info-panel .info-type {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--color-text-muted);
+            letter-spacing: 0.02em;
+        }
+        .info-panel .info-close {
+            cursor: pointer;
+            color: var(--color-text-muted);
+            font-size: 14px;
+            transition: color 200ms ease;
+            background: none;
+            border: none;
+            font-family: inherit;
+        }
+        .info-panel .info-close:hover { color: var(--color-status-alert); }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 14px;
+        }
+        .info-row .info-key { color: var(--color-text-muted); }
+        .info-row .info-val { color: var(--color-text-primary); font-weight: 500; }
+        .info-row .info-val.risk-high { color: var(--color-status-alert); }
+        .info-row .info-val.risk-med { color: var(--color-status-pending); }
+        .info-row .info-val.risk-low { color: var(--color-status-active); }
+        .info-row .info-val.species { color: #44bbff; font-style: italic; }
+        .info-row .info-val.vessel { color: #ff8844; }
+        .info-row .info-val.platform { color: #ff5577; }
+        .info-row .info-val.gap { color: #ffdd44; }
+        .info-row .info-val.osv { color: #ff66cc; }
+
+        /* === LEAFLET OVERRIDES === */
+        .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+            background: var(--color-surface);
+            border: 1px solid var(--color-accent);
+            color: var(--color-text-primary);
+            border-radius: 0;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        .leaflet-popup-content { font-size: 14px; }
+        .leaflet-control-zoom a {
+            background: var(--color-surface) !important;
+            color: var(--color-text-secondary) !important;
+            border-color: var(--color-border) !important;
+            border-radius: 0 !important;
+        }
+        .leaflet-control-zoom a:hover {
+            background: var(--color-accent) !important;
+            color: #FFFFFF !important;
+        }
+
+        /* === KNOWLEDGE GRAPH PANEL === */
+        .kg-panel {
+            position: absolute;
+            bottom: 174px;
+            right: 14px;
+            z-index: 1000;
+            background: var(--color-surface);
+            border: 1px solid var(--color-border);
+            padding: 14px 18px;
+            min-width: 220px;
+            font-family: 'IBM Plex Mono', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .kg-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--color-text-secondary);
+            letter-spacing: 0.02em;
+            border-bottom: 1px solid var(--color-border);
+            padding-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .kg-status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--color-text-disabled);
+            flex-shrink: 0;
+            transition: background 200ms ease;
+        }
+        .kg-status-dot.ready {
+            background: var(--color-status-active);
+        }
+        .kg-status-dot.building {
+            background: var(--color-status-pending);
+        }
+        .kg-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 14px;
+            border-bottom: 1px solid var(--color-border);
+        }
+        .kg-row:last-child { border-bottom: none; }
+        .kg-type {
+            color: var(--color-text-muted);
+            letter-spacing: 0.01em;
+        }
+        .kg-count {
+            font-weight: 600;
+            color: var(--color-text-primary);
+        }
+        .kg-count.high  { color: var(--color-status-alert); }
+        .kg-count.med   { color: var(--color-status-pending); }
+        .kg-count.low   { color: var(--color-status-active); }
+        .kg-count.blue  { color: #44bbff; }
+        .kg-count.purple{ color: #bb88ff; }
+        .kg-count.pink  { color: #ff66cc; }
+        .kg-count.yellow{ color: #ffdd44; }
+        .kg-count.red   { color: #ff5577; }
+        .kg-summary {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px solid var(--color-border);
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--color-text-muted);
+        }
+        .kg-summary span { color: var(--color-text-primary); font-weight: 600; }
+        .kg-not-ready {
+            font-size: 14px;
+            color: var(--color-text-muted);
+            text-align: center;
+            padding: 6px 0;
+            line-height: 1.6;
+        }
+
+        /* === PULSING GAP MARKER === */
+        .gap-pulse {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255, 221, 68, 0.7);
+            border: 2px solid rgba(255, 221, 68, 0.3);
+            animation: gapPulse 1.8s ease-in-out infinite;
+        }
+        @keyframes gapPulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 4px rgba(255,221,68,0.4); }
+            50%      { transform: scale(1.4); box-shadow: 0 0 12px rgba(255,221,68,0.7); }
+        }
+
+        /* Platform marker */
+        .platform-marker {
+            width: 10px;
+            height: 10px;
+            background: #ff5577;
+            border: 2px solid rgba(255, 85, 119, 0.3);
+            transform: rotate(45deg);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <div>
+            <h1>ZOHAR <span class="accent">//</span> OCEAN PROTO</h1>
+            <small>Oil & Gas Impact on Cetacean Habitats — Baja California Sur / Gulf of California</small>
+        </div>
+        <div class="header-actions">
+            <button id="buildKgBtn" class="btn" onclick="buildKG()">⬡ Build KG</button>
+            <button id="refreshBtn" class="btn" onclick="refreshData()">⟳ Ejecutar Pipeline</button>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Layer Control Panel -->
+    <div class="layer-panel" id="layerPanel">
+        <h3>Capas</h3>
+        <label class="layer-item" style="--layer-color: #FD8D3C;">
+            <input type="checkbox" id="toggleHotspots" checked onchange="toggleLayer('hotspots')">
+            <span class="layer-dot" style="background: #FD8D3C;"></span>
+            <span class="layer-label">Zonas de Riesgo</span>
+            <span class="layer-count" id="countHotspots">—</span>
+        </label>
+        <label class="layer-item" style="--layer-color: #ff8844;">
+            <input type="checkbox" id="toggleVessels" checked onchange="toggleLayer('vessels')">
+            <span class="layer-dot" style="background: #ff8844;"></span>
+            <span class="layer-label">Embarcaciones SAR</span>
+            <span class="layer-count" id="countVessels">—</span>
+        </label>
+        <label class="layer-item" style="--layer-color: #44bbff;">
+            <input type="checkbox" id="toggleMegafauna" checked onchange="toggleLayer('megafauna')">
+            <span class="layer-dot" style="background: #44bbff;"></span>
+            <span class="layer-label">Megafauna</span>
+            <span class="layer-count" id="countMegafauna">—</span>
+        </label>
+
+        <div class="layer-section-title">Oil & Gas</div>
+        <label class="layer-item" style="--layer-color: #ff5577;">
+            <input type="checkbox" id="togglePlatforms" checked onchange="toggleLayer('platforms')">
+            <span class="layer-dot" style="background: #ff5577;"></span>
+            <span class="layer-label">Plataformas O&G</span>
+            <span class="layer-count" id="countPlatforms">—</span>
+        </label>
+        <label class="layer-item" style="--layer-color: #ff66cc;">
+            <input type="checkbox" id="toggleOsvs" checked onchange="toggleLayer('osvs')">
+            <span class="layer-dot" style="background: #ff66cc;"></span>
+            <span class="layer-label">Buques OSV</span>
+            <span class="layer-count" id="countOsvs">—</span>
+        </label>
+        <label class="layer-item" style="--layer-color: #ffdd44;">
+            <input type="checkbox" id="toggleGaps" checked onchange="toggleLayer('gaps')">
+            <span class="layer-dot" style="background: #ffdd44;"></span>
+            <span class="layer-label">AIS Gaps</span>
+            <span class="layer-count" id="countGaps">—</span>
+        </label>
+    </div>
+
+    <!-- Stats Bar -->
+    <div class="stats-bar" id="statsBar">
+        <div class="stat-card">
+            <div class="stat-value" id="statVessels" style="color: #ff8844;">—</div>
+            <div class="stat-label">Buques SAR</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statMegafauna" style="color: #44bbff;">—</div>
+            <div class="stat-label">Avistamientos</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statHotspots" style="color: #ff4444;">—</div>
+            <div class="stat-label">Zonas Riesgo</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statMaxRisk" style="color: #FEB24C;">—</div>
+            <div class="stat-label">Max Risk</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statPlatforms" style="color: #ff5577;">—</div>
+            <div class="stat-label">Plataformas</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statGaps" style="color: #ffdd44;">—</div>
+            <div class="stat-label">AIS Gaps</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statKgNodes" style="color: var(--color-text-primary);">—</div>
+            <div class="stat-label">KG Nodos</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="statKgEdges" style="color: var(--color-text-secondary);">—</div>
+            <div class="stat-label">KG Aristas</div>
+        </div>
+    </div>
+
+    <!-- Info Panel (appears on click) -->
+    <div class="info-panel" id="infoPanel">
+        <div class="info-header">
+            <span class="info-type" id="infoType">—</span>
+            <button class="info-close" onclick="closeInfo()">✕ cerrar</button>
+        </div>
+        <div id="infoBody"></div>
+    </div>
+
+    <!-- Knowledge Graph Panel -->
+    <div class="kg-panel" id="kgPanel">
+        <h3>
+            <span class="kg-status-dot" id="kgDot"></span>
+            Knowledge Graph
+        </h3>
+        <div id="kgBody">
+            <div class="kg-not-ready">Cargando estado del grafo...</div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+        // =====================================================
+        //  MAP INITIALIZATION
+        // =====================================================
+        const map = L.map('map', { zoomControl: true }).setView([26.0, -111.0], 6);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 18
+        }).addTo(map);
+
+        // =====================================================
+        //  LAYER REFERENCES
+        // =====================================================
+        let hotspotsLayer = null;
+        let vesselsLayer = null;
+        let megafaunaLayer = null;
+        let platformsLayer = null;
+        let osvsLayer = null;
+        let gapsLayer = null;
+
+        // =====================================================
+        //  COLOR SCALES
+        // =====================================================
+        function getRiskColor(score) {
+            return score > 20 ? '#800026' :
+                   score > 15 ? '#BD0026' :
+                   score > 10 ? '#E31A1C' :
+                   score > 5  ? '#FC4E2A' :
+                   score > 2  ? '#FD8D3C' :
+                   score > 0  ? '#FEB24C' :
+                                '#FFEDA0';
+        }
+
+        function getRiskClass(score) {
+            if (score > 10) return 'risk-high';
+            if (score > 3) return 'risk-med';
+            return 'risk-low';
+        }
+
+        // Vessel type → icon color
+        const vesselColors = {
+            'passenger': '#ff44aa',
+            'tanker': '#ff8844',
+            'cargo': '#ffcc44',
+            'fishing': '#44ff88'
+        };
+
+        // Species → icon color
+        const speciesColors = {
+            'Megaptera novaeangliae': '#44bbff',
+            'Balaenoptera musculus': '#2299ff',
+            'Rhincodon typus': '#00ddaa',
+            'Eschrichtius robustus': '#66aaff',
+            'Balaenoptera physalus': '#3388dd',
+            'Physeter macrocephalus': '#88aaff',
+            'Balaenoptera borealis': '#5599ee',
+        };
+
+        // =====================================================
+        //  INFO PANEL
+        // =====================================================
+        function showInfo(type, rows) {
+            const panel = document.getElementById('infoPanel');
+            const typeEl = document.getElementById('infoType');
+            const bodyEl = document.getElementById('infoBody');
+
+            typeEl.textContent = type;
+            bodyEl.innerHTML = rows.map(r =>
+                `<div class="info-row">
+                    <span class="info-key">${r.key}</span>
+                    <span class="info-val ${r.cls || ''}">${r.val}</span>
+                </div>`
+            ).join('');
+            panel.classList.add('visible');
+        }
+
+        function closeInfo() {
+            document.getElementById('infoPanel').classList.remove('visible');
+        }
+
+        // =====================================================
+        //  LOAD RISK HOTSPOTS
+        // =====================================================
+        function loadHotspots() {
+            fetch('/api/risk-hotspots')
+                .then(r => r.json())
+                .then(data => {
+                    if (hotspotsLayer) map.removeLayer(hotspotsLayer);
+
+                    const features = data.features || [];
+                    document.getElementById('countHotspots').textContent = features.length;
+                    document.getElementById('statHotspots').textContent = features.length;
+
+                    // Max risk
+                    let maxRisk = 0;
+                    features.forEach(f => {
+                        if (f.properties.risk_score > maxRisk) maxRisk = f.properties.risk_score;
+                    });
+                    document.getElementById('statMaxRisk').textContent = maxRisk;
+
+                    if (features.length > 0) {
+                        hotspotsLayer = L.geoJSON(data, {
+                            style: feature => ({
+                                fillColor: getRiskColor(feature.properties.risk_score),
+                                weight: 1,
+                                opacity: 0.8,
+                                color: 'rgba(255,255,255,0.12)',
+                                fillOpacity: 0.6
+                            }),
+                            onEachFeature: (feature, layer) => {
+                                const p = feature.properties;
+                                layer.on('click', () => {
+                                    showInfo('Zona de Riesgo H3', [
+                                        { key: 'H3 Index', val: p.h3_index },
+                                        { key: 'Buques', val: p.vessel_count, cls: 'vessel' },
+                                        { key: 'Megafauna', val: p.megafauna_count, cls: 'species' },
+                                        { key: 'Risk Score', val: p.risk_score, cls: getRiskClass(p.risk_score) },
+                                    ]);
+                                });
+                                layer.on('mouseover', function(e) {
+                                    this.setStyle({ weight: 2, color: '#00ff88', fillOpacity: 0.85 });
+                                });
+                                layer.on('mouseout', function(e) {
+                                    hotspotsLayer.resetStyle(this);
+                                });
+                            }
+                        });
+                        if (document.getElementById('toggleHotspots').checked) {
+                            hotspotsLayer.addTo(map);
+                        }
+                    }
+                })
+                .catch(err => console.error('Error loading hotspots:', err));
+        }
+
+        // =====================================================
+        //  LOAD VESSELS (GFW SAR)
+        // =====================================================
+        function loadVessels() {
+            fetch('/api/vessels')
+                .then(r => r.json())
+                .then(data => {
+                    if (vesselsLayer) map.removeLayer(vesselsLayer);
+
+                    const features = data.features || [];
+                    document.getElementById('countVessels').textContent = features.length;
+                    document.getElementById('statVessels').textContent = features.length;
+
+                    if (features.length > 0) {
+                        vesselsLayer = L.geoJSON(data, {
+                            pointToLayer: (feature, latlng) => {
+                                const vtype = (feature.properties.vessel_type || 'unknown').toLowerCase();
+                                const color = vesselColors[vtype] || '#ff8844';
+                                return L.circleMarker(latlng, {
+                                    radius: 4,
+                                    fillColor: color,
+                                    color: 'rgba(255,255,255,0.2)',
+                                    weight: 1,
+                                    fillOpacity: 0.85
+                                });
+                            },
+                            onEachFeature: (feature, layer) => {
+                                const p = feature.properties;
+                                layer.on('click', () => {
+                                    showInfo('Embarcación SAR (GFW)', [
+                                        { key: 'MMSI', val: p.mmsi || '—' },
+                                        { key: 'Tipo', val: (p.vessel_type || 'unknown').toUpperCase(), cls: 'vessel' },
+                                        { key: 'Timestamp', val: p.timestamp || '—' },
+                                        { key: 'Lat', val: feature.geometry.coordinates[1].toFixed(4) },
+                                        { key: 'Lon', val: feature.geometry.coordinates[0].toFixed(4) },
+                                    ]);
+                                });
+                                layer.on('mouseover', function() {
+                                    this.setStyle({ radius: 7, fillOpacity: 1, weight: 2, color: '#fff' });
+                                });
+                                layer.on('mouseout', function() {
+                                    this.setStyle({ radius: 4, fillOpacity: 0.85, weight: 1, color: 'rgba(255,255,255,0.2)' });
+                                });
+                            }
+                        });
+                        if (document.getElementById('toggleVessels').checked) {
+                            vesselsLayer.addTo(map);
+                        }
+                    }
+                })
+                .catch(err => console.error('Error loading vessels:', err));
+        }
+
+        // =====================================================
+        //  LOAD MEGAFAUNA (OBIS)
+        // =====================================================
+        function loadMegafauna() {
+            fetch('/api/megafauna')
+                .then(r => r.json())
+                .then(data => {
+                    if (megafaunaLayer) map.removeLayer(megafaunaLayer);
+
+                    const features = data.features || [];
+                    document.getElementById('countMegafauna').textContent = features.length;
+                    document.getElementById('statMegafauna').textContent = features.length;
+
+                    if (features.length > 0) {
+                        megafaunaLayer = L.geoJSON(data, {
+                            pointToLayer: (feature, latlng) => {
+                                const sp = feature.properties.species || 'Unknown';
+                                const color = speciesColors[sp] || '#44bbff';
+                                return L.circleMarker(latlng, {
+                                    radius: 5,
+                                    fillColor: color,
+                                    color: 'rgba(68, 187, 255, 0.3)',
+                                    weight: 1,
+                                    fillOpacity: 0.8
+                                });
+                            },
+                            onEachFeature: (feature, layer) => {
+                                const p = feature.properties;
+                                layer.on('click', () => {
+                                    showInfo('Avistamiento de Megafauna (OBIS)', [
+                                        { key: 'Especie', val: p.species || 'Desconocida', cls: 'species' },
+                                        { key: 'Fecha', val: p.eventDate || '—' },
+                                        { key: 'Lat', val: feature.geometry.coordinates[1].toFixed(4) },
+                                        { key: 'Lon', val: feature.geometry.coordinates[0].toFixed(4) },
+                                    ]);
+                                });
+                                layer.on('mouseover', function() {
+                                    this.setStyle({ radius: 8, fillOpacity: 1, weight: 2, color: '#fff' });
+                                });
+                                layer.on('mouseout', function() {
+                                    this.setStyle({ radius: 5, fillOpacity: 0.8, weight: 1, color: 'rgba(68, 187, 255, 0.3)' });
+                                });
+                            }
+                        });
+                        if (document.getElementById('toggleMegafauna').checked) {
+                            megafaunaLayer.addTo(map);
+                        }
+                    }
+                })
+                .catch(err => console.error('Error loading megafauna:', err));
+        }
+
+        // =====================================================
+        //  LOAD OIL PLATFORMS
+        // =====================================================
+        function loadPlatforms() {
+            fetch('/api/oil-platforms')
+                .then(r => r.json())
+                .then(data => {
+                    if (platformsLayer) map.removeLayer(platformsLayer);
+
+                    const features = data.features || [];
+                    document.getElementById('countPlatforms').textContent = features.length;
+                    document.getElementById('statPlatforms').textContent = features.length;
+
+                    if (features.length > 0) {
+                        platformsLayer = L.geoJSON(data, {
+                            pointToLayer: (feature, latlng) => {
+                                return L.marker(latlng, {
+                                    icon: L.divIcon({
+                                        className: '',
+                                        html: '<div class="platform-marker"></div>',
+                                        iconSize: [10, 10],
+                                        iconAnchor: [5, 5],
+                                    })
+                                });
+                            },
+                            onEachFeature: (feature, layer) => {
+                                const p = feature.properties;
+                                layer.on('click', () => {
+                                    showInfo('Plataforma O&G', [
+                                        { key: 'ID', val: p.platform_id || '—', cls: 'platform' },
+                                        { key: 'Categoría', val: p.category || 'OIL', cls: 'platform' },
+                                        { key: 'Tipo', val: p.label || '—' },
+                                        { key: 'Sub-cat', val: p.sub_category || '—' },
+                                        { key: 'Fuente', val: p.source || '—' },
+                                        { key: 'Lat', val: feature.geometry.coordinates[1].toFixed(4) },
+                                        { key: 'Lon', val: feature.geometry.coordinates[0].toFixed(4) },
+                                    ]);
+                                });
+                            }
+                        });
+                        if (document.getElementById('togglePlatforms').checked) {
+                            platformsLayer.addTo(map);
+                        }
+                    }
+                })
+                .catch(err => console.error('Error loading platforms:', err));
+        }
+
+        // =====================================================
+        //  LOAD SUPPORT VESSELS (OSVs)
+        // =====================================================
+        function loadOsvs() {
+            fetch('/api/support-vessels')
+                .then(r => r.json())
+                .then(data => {
+                    if (osvsLayer) map.removeLayer(osvsLayer);
+
+                    const features = data.features || [];
+                    document.getElementById('countOsvs').textContent = features.length;
+
+                    if (features.length > 0) {
+                        osvsLayer = L.geoJSON(data, {
+                            pointToLayer: (feature, latlng) => {
+                                return L.circleMarker(latlng, {
+                                    radius: 5,
+                                    fillColor: '#ff66cc',
+                                    color: 'rgba(255, 102, 204, 0.3)',
+                                    weight: 1.5,
+                                    fillOpacity: 0.8
+                                });
+                            },
+                            onEachFeature: (feature, layer) => {
+                                const p = feature.properties;
+                                layer.on('click', () => {
+                                    showInfo('Buque de Apoyo O&G (OSV)', [
+                                        { key: 'Nombre', val: p.shipname || '—', cls: 'osv' },
+                                        { key: 'MMSI', val: p.mmsi || '—' },
+                                        { key: 'Bandera', val: p.flag || '—' },
+                                        { key: 'Tipo', val: p.vessel_type || 'support', cls: 'osv' },
+                                        { key: 'Fuente', val: p.source || '—' },
+                                        { key: 'Lat', val: feature.geometry.coordinates[1].toFixed(4) },
+                                        { key: 'Lon', val: feature.geometry.coordinates[0].toFixed(4) },
+                                    ]);
+                                });
+                                layer.on('mouseover', function() {
+                                    this.setStyle({ radius: 8, fillOpacity: 1, weight: 2, color: '#fff' });
+                                });
+                                layer.on('mouseout', function() {
+                                    this.setStyle({ radius: 5, fillOpacity: 0.8, weight: 1.5, color: 'rgba(255, 102, 204, 0.3)' });
+                                });
+                            }
+                        });
+                        if (document.getElementById('toggleOsvs').checked) {
+                            osvsLayer.addTo(map);
+                        }
+                    }
+                })
+                .catch(err => console.error('Error loading OSVs:', err));
+        }
+
+        // =====================================================
+        //  LOAD AIS GAP EVENTS
+        // =====================================================
+        function loadGaps() {
+            fetch('/api/gap-events')
+                .then(r => r.json())
+                .then(data => {
+                    if (gapsLayer) map.removeLayer(gapsLayer);
+
+                    const features = data.features || [];
+                    document.getElementById('countGaps').textContent = features.length;
+                    document.getElementById('statGaps').textContent = features.length;
+
+                    if (features.length > 0) {
+                        gapsLayer = L.geoJSON(data, {
+                            pointToLayer: (feature, latlng) => {
+                                return L.marker(latlng, {
+                                    icon: L.divIcon({
+                                        className: '',
+                                        html: '<div class="gap-pulse"></div>',
+                                        iconSize: [12, 12],
+                                        iconAnchor: [6, 6],
+                                    })
+                                });
+                            },
+                            onEachFeature: (feature, layer) => {
+                                const p = feature.properties;
+                                layer.on('click', () => {
+                                    showInfo('AIS Gap Event (Apagón)', [
+                                        { key: 'Nombre', val: p.shipname || '—', cls: 'gap' },
+                                        { key: 'MMSI', val: p.mmsi || '—' },
+                                        { key: 'Bandera', val: p.flag || '—' },
+                                        { key: 'Duración', val: `${p.gap_hours}h`, cls: p.gap_hours > 24 ? 'risk-high' : 'gap' },
+                                        { key: 'Inicio', val: p.start || '—' },
+                                        { key: 'Fin', val: p.end || '—' },
+                                        { key: 'Lat', val: feature.geometry.coordinates[1].toFixed(4) },
+                                        { key: 'Lon', val: feature.geometry.coordinates[0].toFixed(4) },
+                                    ]);
+                                });
+                            }
+                        });
+                        if (document.getElementById('toggleGaps').checked) {
+                            gapsLayer.addTo(map);
+                        }
+                    }
+                })
+                .catch(err => console.error('Error loading gaps:', err));
+        }
+
+        // =====================================================
+        //  LAYER TOGGLE
+        // =====================================================
+        function toggleLayer(name) {
+            const layers = {
+                hotspots: hotspotsLayer,
+                vessels: vesselsLayer,
+                megafauna: megafaunaLayer,
+                platforms: platformsLayer,
+                osvs: osvsLayer,
+                gaps: gapsLayer,
+            };
+            const checks = {
+                hotspots: 'toggleHotspots',
+                vessels: 'toggleVessels',
+                megafauna: 'toggleMegafauna',
+                platforms: 'togglePlatforms',
+                osvs: 'toggleOsvs',
+                gaps: 'toggleGaps',
+            };
+
+            const layer = layers[name];
+            const checked = document.getElementById(checks[name]).checked;
+
+            if (!layer) return;
+
+            if (checked) {
+                layer.addTo(map);
+            } else {
+                map.removeLayer(layer);
+            }
+        }
+
+        // =====================================================
+        //  REFRESH DATA (Full pipeline re-run)
+        // =====================================================
+        function refreshData() {
+            const btn = document.getElementById('refreshBtn');
+            btn.disabled = true;
+            btn.innerText = "⟳ Actualizando...";
+
+            fetch('/api/refresh', { method: 'POST' })
+                .then(res => {
+                    if (!res.ok) throw new Error("Network response was not ok");
+                    return res.json();
+                })
+                .then(data => {
+                    console.log("Pipeline triggered:", data);
+                    setTimeout(() => {
+                        loadAllLayers();
+                        btn.disabled = false;
+                        btn.innerText = "⟳ Ejecutar Pipeline";
+                    }, 8000);
+                })
+                .catch(error => {
+                    console.error('Error triggering refresh:', error);
+                    btn.disabled = false;
+                    btn.innerText = "⟳ Ejecutar Pipeline";
+                });
+        }
+
+        // =====================================================
+        //  LEGEND
+        // =====================================================
+        const legend = L.control({ position: 'bottomright' });
+        legend.onAdd = function() {
+            const div = L.DomUtil.create('div', 'info legend');
+            const grades = [0, 2, 5, 10, 15, 20];
+
+            div.innerHTML = '<h4>Risk Score</h4>';
+            for (let i = 0; i < grades.length; i++) {
+                div.innerHTML +=
+                    '<i style="background:' + getRiskColor(grades[i] + 1) + '"></i> ' +
+                    grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
+            }
+            return div;
+        };
+        legend.addTo(map);
+
+        // =====================================================
+        //  KNOWLEDGE GRAPH STATS
+        // =====================================================
+        const KG_TYPE_META = {
+            'HexCell':             { label: 'HexCell',              cls: 'low'  },
+            'VesselEvent':         { label: 'VesselEvent',          cls: 'med'  },
+            'VesselIdentity':      { label: 'VesselIdentity',      cls: 'med'  },
+            'MegafaunaOccurrence': { label: 'MegafaunaOccurrence', cls: 'blue' },
+            'Species':             { label: 'Species',              cls: 'blue' },
+            'WhaleSpecies':        { label: 'WhaleSpecies',         cls: 'blue' },
+            'OilPlatform':         { label: 'OilPlatform',          cls: 'red'  },
+            'SupportVessel':       { label: 'SupportVessel',        cls: 'pink' },
+            'AisGapEvent':         { label: 'AisGapEvent',          cls: 'yellow'},
+            'RiskZone':            { label: 'RiskZone',             cls: 'high' },
+        };
+
+        function loadKGStats() {
+            fetch('/api/graph/stats')
+                .then(r => r.json())
+                .then(data => {
+                    const dot  = document.getElementById('kgDot');
+                    const body = document.getElementById('kgBody');
+
+                    if (data.status !== 'ready') {
+                        dot.className = 'kg-status-dot';
+                        body.innerHTML = `<div class="kg-not-ready">Grafo no construido.<br>Usa <strong style="color:var(--color-accent)">⬡ Build KG</strong> para generarlo.</div>`;
+                        return;
+                    }
+
+                    dot.className = 'kg-status-dot ready';
+
+                    // Stat cards
+                    document.getElementById('statKgNodes').textContent = data.nodes.toLocaleString();
+                    document.getElementById('statKgEdges').textContent = data.edges.toLocaleString();
+
+                    // Detail rows
+                    const types = data.node_types || {};
+                    let rows = '';
+                    for (const [type, meta] of Object.entries(KG_TYPE_META)) {
+                        const cnt = types[type] || 0;
+                        if (cnt === 0) continue; // Skip empty types
+                        rows += `<div class="kg-row">
+                            <span class="kg-type">${meta.label}</span>
+                            <span class="kg-count ${meta.cls}">${cnt.toLocaleString()}</span>
+                        </div>`;
+                    }
+
+                    // Created timestamp
+                    const created = data.created
+                        ? new Date(data.created).toLocaleString('es-MX', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })
+                        : '—';
+
+                    body.innerHTML = rows + `
+                        <div class="kg-summary">
+                            <span style="color:#5a5f66">generado</span>
+                            <span>${created}</span>
+                        </div>`;
+                })
+                .catch(() => {
+                    document.getElementById('kgBody').innerHTML =
+                        '<div class="kg-not-ready" style="color:var(--color-status-alert)">Error al conectar con la API.</div>';
+                });
+        }
+
+        function buildKG() {
+            const btn = document.getElementById('buildKgBtn');
+            const dot = document.getElementById('kgDot');
+            btn.disabled = true;
+            btn.innerText = '⬡ Construyendo...';
+            dot.className = 'kg-status-dot building';
+            document.getElementById('kgBody').innerHTML =
+                '<div class="kg-not-ready" style="color:var(--color-status-pending)">Pipeline en ejecución...<br>Esto tarda ~30 segundos.</div>';
+
+            fetch('/api/refresh?build_kg=true', { method: 'POST' })
+                .then(r => r.json())
+                .then(() => {
+                    // Poll until el grafo esté listo
+                    let attempts = 0;
+                    const poll = setInterval(() => {
+                        attempts++;
+                        loadKGStats();
+                        if (attempts >= 12) {
+                            clearInterval(poll);
+                            btn.disabled = false;
+                            btn.innerText = '⬡ Build KG';
+                        }
+                    }, 5000);
+                })
+                .catch(() => {
+                    btn.disabled = false;
+                    btn.innerText = '⬡ Build KG';
+                    dot.className = 'kg-status-dot';
+                });
+        }
+
+        // =====================================================
+        //  LOAD ALL LAYERS
+        // =====================================================
+        function loadAllLayers() {
+            loadHotspots();
+            loadVessels();
+            loadMegafauna();
+            loadPlatforms();
+            loadOsvs();
+            loadGaps();
+            loadKGStats();
+        }
+
+        // =====================================================
+        //  BOOT: Load all layers
+        // =====================================================
+        loadAllLayers();
+        // Refresh KG stats cada 60 segundos
+        setInterval(loadKGStats, 60000);
+
+    </script>
+</body>
+</html>

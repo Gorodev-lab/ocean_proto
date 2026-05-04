@@ -1,0 +1,13 @@
+services:
+  ocean_api:
+    build: .
+    container_name: ocean_api_service
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      # Datos SAR reales de GFW (detecciones satelitales)
+      - ./d1f2dc60-3841-11f1-bbe6-bfd704486e22:/app/d1f2dc60-3841-11f1-bbe6-bfd704486e22:ro
+    restart: unless-stopped

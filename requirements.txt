@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+geopandas
+pandas
+shapely
+h3
+pyarrow
+pydantic
+python-dotenv
+requests
+networkx
+graphifyy
+# Nuevas dependencias — criterios oceanográficos
+numpy
+scipy
+# erddapy  # opcional: cliente Python para ERDDAP (usamos URLs directas en vez)
