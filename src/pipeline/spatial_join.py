@@ -1,11 +1,10 @@
 """
-ocean_proto / src / pipeline / spatial_join.py
-==============================================
+ocean_proto / src / pipeline / spatial_join.py — GFW-ONLY
+=========================================================
 Módulo de cruce espacial usando celdas H3.
 
-Versión 2: integra criterios oceanográficos multidimensionales mediante
-compute_enhanced_risk_hotspots(). Mantiene compatibilidad con compute_risk_hotspots()
-para backward compatibility.
+Versión GFW-Only: calcula hotspots de presión antrópica usando
+exclusivamente datos de Global Fishing Watch (sin OBIS ni ERDDAP).
 """
 import h3
 import geopandas as gpd
@@ -17,7 +16,7 @@ import json
 
 logger = logging.getLogger(__name__)
 
-H3_RESOLUTION = 5  # ~50 km de diámetro por celda — adecuado para datos demo en BCS
+H3_RESOLUTION = 5  # ~50 km de diámetro por celda
 
 
 def get_h3_index(lat: float, lon: float, resolution: int) -> str:
@@ -32,209 +31,154 @@ def cell_to_polygon(hex_id: str) -> Polygon:
     return Polygon(lng_lat_boundary)
 
 
-def compute_risk_hotspots(
-    gfw_gdf: gpd.GeoDataFrame,
-    obis_gdf: gpd.GeoDataFrame,
-    output_path: str,
-) -> Optional[gpd.GeoDataFrame]:
-    """
-    Cruza los datos espacialmente agrupándolos en celdas H3 y
-    calcula el Collision Risk Score baseline.
-
-    Mantiene compatibilidad con la versión original.
-    """
-    # Asignar celdas H3
-    if not gfw_gdf.empty:
-        gfw_gdf = gfw_gdf.copy()
-        gfw_gdf["h3_index"] = gfw_gdf.geometry.apply(
+def _assign_h3(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Asigna celdas H3 a un GeoDataFrame si no las tiene."""
+    if gdf.empty:
+        return gdf
+    gdf = gdf.copy()
+    if "h3_index" not in gdf.columns:
+        gdf["h3_index"] = gdf.geometry.apply(
             lambda p: get_h3_index(p.y, p.x, H3_RESOLUTION)
         )
+    return gdf
+
+
+def _count_by_hex(gdf: gpd.GeoDataFrame, count_col: str) -> pd.DataFrame:
+    """Cuenta ocurrencias por celda H3."""
+    if gdf.empty:
+        return pd.DataFrame(columns=["h3_index", count_col])
+    gdf = _assign_h3(gdf)
+    return gdf.groupby("h3_index").size().reset_index(name=count_col)
+
+
+def compute_pressure_hotspots(
+    gfw_gdf:         gpd.GeoDataFrame,
+    output_path:     str = "data/risk_hotspots.geojson",
+) -> Optional[gpd.GeoDataFrame]:
+    """
+    Calcula hotspots de presión de tráfico naval usando solo datos SAR/AIS.
+
+    Es la versión baseline del IPA: solo cuenta embarcaciones por celda H3.
+    """
+    if not gfw_gdf.empty:
+        gfw_gdf = _assign_h3(gfw_gdf)
         vessel_counts = gfw_gdf.groupby("h3_index").size().reset_index(name="vessel_count")
     else:
         vessel_counts = pd.DataFrame(columns=["h3_index", "vessel_count"])
 
-    if not obis_gdf.empty:
-        obis_gdf = obis_gdf.copy()
-        obis_gdf["h3_index"] = obis_gdf.geometry.apply(
-            lambda p: get_h3_index(p.y, p.x, H3_RESOLUTION)
-        )
-        megafauna_counts = obis_gdf.groupby("h3_index").size().reset_index(name="megafauna_count")
-    else:
-        megafauna_counts = pd.DataFrame(columns=["h3_index", "megafauna_count"])
-
-    # Unir datos
-    merged = pd.merge(vessel_counts, megafauna_counts, on="h3_index", how="outer").fillna(0)
-    merged["vessel_count"]   = merged["vessel_count"].astype(int)
-    merged["megafauna_count"] = merged["megafauna_count"].astype(int)
-
-    # Calcular Risk Score baseline
-    merged["risk_score"] = merged["vessel_count"] * merged["megafauna_count"]
-
-    risk_hotspots = merged[merged["risk_score"] > 0].copy()
-    if risk_hotspots.empty:
-        risk_hotspots = merged.copy()
-
-    if not risk_hotspots.empty:
-        risk_hotspots["geometry"] = risk_hotspots["h3_index"].apply(cell_to_polygon)
-        gdf_out = gpd.GeoDataFrame(risk_hotspots, geometry="geometry", crs="EPSG:4326")
-    else:
+    if vessel_counts.empty:
         gdf_out = gpd.GeoDataFrame(
-            columns=["h3_index", "vessel_count", "megafauna_count", "risk_score", "geometry"],
+            columns=["h3_index", "vessel_count", "geometry"],
             crs="EPSG:4326",
         )
+        gdf_out.to_file(output_path, driver="GeoJSON")
+        return gdf_out
 
-    gdf_out.sort_values("risk_score", ascending=False, inplace=True)
+    vessel_counts["vessel_count"] = vessel_counts["vessel_count"].astype(int)
+    vessel_counts["geometry"] = vessel_counts["h3_index"].apply(cell_to_polygon)
+    gdf_out = gpd.GeoDataFrame(vessel_counts, geometry="geometry", crs="EPSG:4326")
+    gdf_out.sort_values("vessel_count", ascending=False, inplace=True)
     gdf_out.reset_index(drop=True, inplace=True)
     gdf_out.to_file(output_path, driver="GeoJSON")
     return gdf_out
 
 
-def compute_enhanced_risk_hotspots(
+def compute_gfw_only_hotspots(
     gfw_gdf:           gpd.GeoDataFrame,
-    obis_gdf:          gpd.GeoDataFrame,
     gaps_gdf:          gpd.GeoDataFrame = None,
+    encounters_gdf:    gpd.GeoDataFrame = None,
+    loitering_gdf:     gpd.GeoDataFrame = None,
+    platforms_gdf:     gpd.GeoDataFrame = None,
+    support_gdf:       gpd.GeoDataFrame = None,
+    fishing_effort_df: pd.DataFrame     = None,
+    presence_df:       pd.DataFrame     = None,
     output_path:       str = "data/risk_hotspots.geojson",
     analysis_month:    int = None,
-    use_oceanographic: bool = True,
 ) -> gpd.GeoDataFrame:
     """
-    Versión extendida que integra los criterios oceanográficos del pipeline v2.
-
-    Criterios integrados:
-      1. Co-ocurrencia vessel × megafauna (baseline)
-      2. Impacto acústico (modelo proxy por tipo de embarcación)
-      3. SST (NOAA OISST via ERDDAP)
-      4. Clorofila-a (MODIS Aqua via ERDDAP)
-      5. Batimetría (ETOPO2022 via ERDDAP)
-      6. Estacionalidad migratoria (ventanas de vulnerabilidad)
-      7. Densidad de AIS Gap Events
+    Versión GFW-Only que integra todos los datasets GFW en el IPA.
 
     Parámetros
     ----------
     gfw_gdf           : GeoDataFrame con detecciones SAR de embarcaciones
-    obis_gdf          : GeoDataFrame con ocurrencias de megafauna
-    gaps_gdf          : GeoDataFrame con eventos de apagón AIS (opcional)
+    gaps_gdf          : GeoDataFrame con eventos de apagón AIS
+    encounters_gdf    : GeoDataFrame con eventos de encuentro
+    loitering_gdf     : GeoDataFrame con eventos de merodeo
+    platforms_gdf     : GeoDataFrame con plataformas O&G
+    support_gdf       : GeoDataFrame con buques de soporte O&G
+    fishing_effort_df : DataFrame tabular de esfuerzo pesquero (4Wings)
+    presence_df       : DataFrame tabular de presencia naval (4Wings)
     output_path       : ruta de salida del GeoJSON
-    analysis_month    : mes para el modificador temporal (1-12), None = no aplicar
-    use_oceanographic : Si False, devuelve solo el baseline score
+    analysis_month    : mes para el modificador temporal (1-12)
 
     Retorna
     -------
-    GeoDataFrame con CRS y sub-scores por celda H3
+    GeoDataFrame con IPA y sub-scores por celda H3
     """
-    # ── Paso 1: Hotspots base ─────────────────────────────────────────────────
-    base_gdf = compute_risk_hotspots(gfw_gdf, obis_gdf, output_path)
+    # ── Paso 1: Hotspots base (tráfico) ──────────────────────────────────
+    base_gdf = compute_pressure_hotspots(gfw_gdf, output_path)
 
-    if not use_oceanographic or base_gdf is None or base_gdf.empty:
+    if base_gdf is None or base_gdf.empty:
         return base_gdf
 
-    # ── Paso 2: gfw_df con h3_index para modelo acústico ─────────────────────
+    # ── Paso 2: gfw_df con h3_index para modelo acústico ─────────────────
     gfw_df = pd.DataFrame()
     if not gfw_gdf.empty:
+        gfw_gdf = _assign_h3(gfw_gdf)
         gfw_df = gfw_gdf.drop(columns="geometry", errors="ignore").copy()
-        if "h3_index" not in gfw_df.columns:
-            gfw_df["h3_index"] = gfw_gdf.geometry.apply(
-                lambda p: get_h3_index(p.y, p.x, H3_RESOLUTION)
-            )
 
-    # ── Paso 3: Modelo acústico ────────────────────────────────────────────────
+    # ── Paso 3: Modelo acústico ──────────────────────────────────────────
     acoustic_df = pd.DataFrame()
     if not gfw_df.empty:
         try:
             from src.pipeline.acoustic_model import compute_acoustic_risk_per_hex
             acoustic_df = compute_acoustic_risk_per_hex(gfw_df, H3_RESOLUTION)
-            logger.info(f"[Enhanced] Modelo acústico: {len(acoustic_df)} celdas.")
+            logger.info(f"[GFW-Only] Modelo acústico: {len(acoustic_df)} celdas.")
         except Exception as e:
-            logger.warning(f"[Enhanced] Modelo acústico falló: {e}")
+            logger.warning(f"[GFW-Only] Modelo acústico falló: {e}")
 
-    # ── Paso 4: Gap events por celda ──────────────────────────────────────────
-    gaps_hex_df = pd.DataFrame()
-    if gaps_gdf is not None and not gaps_gdf.empty:
-        gaps_df = gaps_gdf.drop(columns="geometry", errors="ignore").copy()
-        if "lat" in gaps_df.columns and "lon" in gaps_df.columns:
-            gaps_df["h3_index"] = [
-                get_h3_index(row["lat"], row["lon"], H3_RESOLUTION)
-                for _, row in gaps_df.iterrows()
-            ]
-            gaps_hex_df = gaps_df.groupby("h3_index").size().reset_index(name="gap_count")
+    # ── Paso 4: Agregar eventos por celda H3 ─────────────────────────────
+    gaps_hex_df = _count_by_hex(gaps_gdf, "gap_count") if gaps_gdf is not None else pd.DataFrame()
+    encounters_hex_df = _count_by_hex(encounters_gdf, "encounter_count") if encounters_gdf is not None else pd.DataFrame()
+    loitering_hex_df = _count_by_hex(loitering_gdf, "loitering_count") if loitering_gdf is not None else pd.DataFrame()
+    platforms_hex_df = _count_by_hex(platforms_gdf, "platform_count") if platforms_gdf is not None else pd.DataFrame()
+    support_hex_df = _count_by_hex(support_gdf, "support_count") if support_gdf is not None else pd.DataFrame()
 
-    # ── Paso 5: Mapa de especies por celda ────────────────────────────────────
-    species_per_hex = {}
-    if not obis_gdf.empty and "species" in obis_gdf.columns:
-        obis_df = obis_gdf.drop(columns="geometry", errors="ignore").copy()
-        if "h3_index" not in obis_df.columns:
-            obis_df["h3_index"] = obis_gdf.geometry.apply(
-                lambda p: get_h3_index(p.y, p.x, H3_RESOLUTION)
-            )
-        for hex_id, grp in obis_df.groupby("h3_index"):
-            species_per_hex[hex_id] = grp["species"].unique().tolist()
-
-    # ── Paso 6: Datos oceanográficos (ERDDAP, con caché) ─────────────────────
-    sst_grid    = None
-    chl_grid    = None
-    bathy_grid  = None
-    upwelling_df = None
-
-    try:
-        from src.pipeline.oceanographic import (
-            fetch_sst_erddap,
-            fetch_chlorophyll_erddap,
-            fetch_bathymetry_erddap,
-            compute_upwelling_index,
-            aggregate_to_grid,
-        )
-
-        sst_raw = fetch_sst_erddap(use_cache=True)
-        if not sst_raw.empty:
-            sst_grid     = aggregate_to_grid(sst_raw, "sst", lat_col="latitude", lon_col="longitude")
-            upwelling_df = compute_upwelling_index(sst_raw)
-
-        chl_raw = fetch_chlorophyll_erddap(use_cache=True)
-        if not chl_raw.empty:
-            chl_grid = aggregate_to_grid(
-                chl_raw, "chlorophyll_mg_m3", lat_col="latitude", lon_col="longitude"
-            )
-
-        bathy_raw = fetch_bathymetry_erddap(use_cache=True)
-        if not bathy_raw.empty:
-            bathy_grid = aggregate_to_grid(
-                bathy_raw, "depth_m", lat_col="latitude", lon_col="longitude"
-            )
-
-    except Exception as e:
-        logger.warning(f"[Enhanced] Error cargando datos oceanográficos: {e}")
-
-    # ── Paso 7: Composite Risk Score ──────────────────────────────────────────
+    # ── Paso 5: IPA (Índice de Presión Antrópica) ────────────────────────
     hotspots_df = base_gdf.drop(columns="geometry", errors="ignore").copy()
     try:
-        from src.pipeline.risk_scoring import compute_composite_risk_score
-        crs_df = compute_composite_risk_score(
-            hotspots_df     = hotspots_df,
-            acoustic_df     = acoustic_df if not acoustic_df.empty else None,
-            sst_grid        = sst_grid,
-            chl_grid        = chl_grid,
-            bathy_grid      = bathy_grid,
-            upwelling_df    = upwelling_df,
-            gaps_hex_df     = gaps_hex_df if not gaps_hex_df.empty else None,
-            species_per_hex = species_per_hex,
-            analysis_month  = analysis_month,
+        from src.pipeline.risk_scoring import compute_anthropic_pressure_index
+        ipa_df = compute_anthropic_pressure_index(
+            hotspots_df       = hotspots_df,
+            acoustic_df       = acoustic_df if not acoustic_df.empty else None,
+            gaps_hex_df       = gaps_hex_df if not gaps_hex_df.empty else None,
+            encounters_hex_df = encounters_hex_df if not encounters_hex_df.empty else None,
+            loitering_hex_df  = loitering_hex_df if not loitering_hex_df.empty else None,
+            fishing_effort_df = fishing_effort_df,
+            presence_df       = presence_df,
+            platforms_hex_df  = platforms_hex_df if not platforms_hex_df.empty else None,
+            support_hex_df    = support_hex_df if not support_hex_df.empty else None,
+            analysis_month    = analysis_month,
         )
     except Exception as e:
-        logger.warning(f"[Enhanced] Composite risk score falló: {e}. Usando baseline.")
-        crs_df = hotspots_df.copy()
-        crs_df["crs"]       = crs_df["risk_score"]
-        crs_df["crs_100"]   = crs_df["risk_score"]
-        crs_df["crs_level"] = "MEDIUM"
+        logger.warning(f"[GFW-Only] IPA falló: {e}. Usando baseline.")
+        ipa_df = hotspots_df.copy()
+        ipa_df["ipa"]       = ipa_df["vessel_count"]
+        ipa_df["ipa_100"]   = ipa_df["vessel_count"]
+        ipa_df["ipa_level"] = "MEDIUM"
+        ipa_df["crs_100"]   = ipa_df["ipa_100"]
+        ipa_df["crs_level"] = ipa_df["ipa_level"]
 
-    # ── Paso 8: Reconstruir GeoDataFrame con geometrías H3 ───────────────────
-    if not crs_df.empty:
-        crs_df["geometry"] = crs_df["h3_index"].apply(cell_to_polygon)
-        gdf_out = gpd.GeoDataFrame(crs_df, geometry="geometry", crs="EPSG:4326")
-        gdf_out.sort_values("crs_100", ascending=False, inplace=True)
+    # ── Paso 6: Reconstruir GeoDataFrame con geometrías H3 ───────────────
+    if not ipa_df.empty:
+        ipa_df["geometry"] = ipa_df["h3_index"].apply(cell_to_polygon)
+        sort_col = "ipa_100" if "ipa_100" in ipa_df.columns else "vessel_count"
+        gdf_out = gpd.GeoDataFrame(ipa_df, geometry="geometry", crs="EPSG:4326")
+        gdf_out.sort_values(sort_col, ascending=False, inplace=True)
         gdf_out.reset_index(drop=True, inplace=True)
         gdf_out.to_file(output_path, driver="GeoJSON")
         logger.info(
-            f"[Enhanced] GeoJSON exportado con CRS: {len(gdf_out)} celdas → {output_path}"
+            f"[GFW-Only] GeoJSON exportado con IPA: {len(gdf_out)} celdas → {output_path}"
         )
         return gdf_out
 
@@ -247,12 +191,20 @@ if __name__ == "__main__":
     from src.pipeline.ingest import run_ingestion
     from datetime import datetime
 
-    print("Ingesting data...")
-    gfw, obis, _platforms, _support, gaps = run_ingestion("data/obis_data.csv")
-    print("Processing enhanced spatial join with oceanographic criteria...")
+    print("Ingesting GFW-Only data...")
+    (gfw, platforms, support, gaps,
+     encounters, loitering, effort, heatmap) = run_ingestion()
+
+    print("Computing GFW-Only pressure hotspots...")
     current_month = datetime.now().month
-    compute_enhanced_risk_hotspots(
-        gfw, obis, gaps_gdf=gaps,
+    compute_gfw_only_hotspots(
+        gfw, gaps_gdf=gaps,
+        encounters_gdf=encounters,
+        loitering_gdf=loitering,
+        platforms_gdf=platforms,
+        support_gdf=support,
+        fishing_effort_df=effort,
+        presence_df=heatmap,
         output_path="data/risk_hotspots.geojson",
         analysis_month=current_month,
     )

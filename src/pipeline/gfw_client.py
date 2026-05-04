@@ -776,3 +776,361 @@ def fetch_presence_heatmap(
         logger.error(f"[4Wings Heatmap] Error de red: {e}")
 
     return all_cells
+
+
+# ================================================================
+# FUENTE 7: GFW — Encounter Events (transbordo en mar)
+# ================================================================
+ENCOUNTER_CACHE  = "data/gfw_encounters_cache.json"
+ENCOUNTER_EXPIRY = 7200   # 2 horas
+
+def fetch_encounter_events(
+    bbox: tuple | None = None,
+    start_date: str = "2023-01-01",
+    end_date:   str = "2023-12-31",
+    limit: int = 500,
+) -> list[dict]:
+    """
+    Descarga eventos de encuentro entre embarcaciones (transbordo potencial).
+    Dataset: public-global-encounters-events:latest
+
+    Los encounters indican posible transbordo de carga/pesca en alta mar,
+    una señal de actividad no regulada que incrementa la presión antrópica.
+    """
+    os.makedirs("data", exist_ok=True)
+
+    if os.path.exists(ENCOUNTER_CACHE):
+        age = time.time() - os.path.getmtime(ENCOUNTER_CACHE)
+        if age < ENCOUNTER_EXPIRY:
+            try:
+                with open(ENCOUNTER_CACHE, "r") as f:
+                    cached = json.load(f)
+                logger.info(f"[Encounters] Usando caché ({len(cached)} eventos)")
+                return cached
+            except json.JSONDecodeError:
+                pass
+
+    token = os.environ.get("GFW_API_TOKEN")
+    if not token:
+        logger.warning("[Encounters] GFW_API_TOKEN no disponible.")
+        return []
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type":  "application/json",
+    }
+
+    params: dict = {
+        "datasets":   "public-global-encounters-events:latest",
+        "limit":      min(limit, 50),
+        "offset":     0,
+        "start-date": start_date,
+        "end-date":   end_date,
+    }
+    if bbox:
+        min_lon, min_lat, max_lon, max_lat = bbox
+        params["bbox"] = f"{min_lon},{min_lat},{max_lon},{max_lat}"
+
+    all_encounters: list[dict] = []
+    url = f"{GFW_BASE_URL}/v3/events"
+
+    try:
+        while len(all_encounters) < limit:
+            logger.info(
+                f"[Encounters] Consultando encounters "
+                f"(offset={params['offset']})..."
+            )
+            r = requests.get(url, headers=headers, params=params, timeout=25)
+            r.raise_for_status()
+            data = r.json()
+
+            entries = data.get("entries", [])
+            if not entries:
+                break
+
+            for ev in entries:
+                pos = ev.get("position", {}) or {}
+                lat = pos.get("lat")
+                lon = pos.get("lon")
+                vessel = ev.get("vessel", {}) or {}
+
+                # Duración del encuentro
+                start = ev.get("start", "")
+                end_t = ev.get("end", "")
+                duration_h = 0.0
+                try:
+                    from datetime import datetime
+                    fmt = "%Y-%m-%dT%H:%M:%S.%fZ"
+                    t0 = datetime.strptime(start, fmt)
+                    t1 = datetime.strptime(end_t, fmt)
+                    duration_h = (t1 - t0).total_seconds() / 3600.0
+                except Exception:
+                    pass
+
+                all_encounters.append({
+                    "encounter_id": ev.get("id", ""),
+                    "vessel_id":    vessel.get("id", ""),
+                    "mmsi":         vessel.get("ssvid", ""),
+                    "shipname":     vessel.get("name", ""),
+                    "flag":         vessel.get("flag", ""),
+                    "lat":          lat,
+                    "lon":          lon,
+                    "start":        start,
+                    "end":          end_t,
+                    "duration_h":   round(duration_h, 2),
+                    "source":       "GFW_encounters",
+                })
+
+            total = data.get("total", 0)
+            next_offset = params["offset"] + params["limit"]
+            if next_offset < total and next_offset < limit:
+                params["offset"] = next_offset
+            else:
+                break
+
+        with open(ENCOUNTER_CACHE, "w") as f:
+            json.dump(all_encounters, f, indent=2)
+        logger.info(f"[Encounters] {len(all_encounters)} encuentros encontrados.")
+
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"[Encounters] HTTP {e.response.status_code}: {e.response.text[:200]}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Encounters] Error de red: {e}")
+
+    return all_encounters
+
+
+# ================================================================
+# FUENTE 8: GFW — Loitering Events (merodeo en zona)
+# ================================================================
+LOITERING_CACHE  = "data/gfw_loitering_cache.json"
+LOITERING_EXPIRY = 7200   # 2 horas
+
+def fetch_loitering_events(
+    bbox: tuple | None = None,
+    start_date: str = "2023-01-01",
+    end_date:   str = "2023-12-31",
+    limit: int = 500,
+) -> list[dict]:
+    """
+    Descarga eventos de loitering (merodeo) en el área de interés.
+    Dataset: public-global-loitering-events:latest
+
+    El loitering indica buques que permanecen en una zona sin actividad
+    de pesca clara — puede indicar transbordo preparatorio, vertidos,
+    o vigilancia. Incrementa la presión antrópica localizada.
+    """
+    os.makedirs("data", exist_ok=True)
+
+    if os.path.exists(LOITERING_CACHE):
+        age = time.time() - os.path.getmtime(LOITERING_CACHE)
+        if age < LOITERING_EXPIRY:
+            try:
+                with open(LOITERING_CACHE, "r") as f:
+                    cached = json.load(f)
+                logger.info(f"[Loitering] Usando caché ({len(cached)} eventos)")
+                return cached
+            except json.JSONDecodeError:
+                pass
+
+    token = os.environ.get("GFW_API_TOKEN")
+    if not token:
+        logger.warning("[Loitering] GFW_API_TOKEN no disponible.")
+        return []
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type":  "application/json",
+    }
+
+    params: dict = {
+        "datasets":   "public-global-loitering-events:latest",
+        "limit":      min(limit, 50),
+        "offset":     0,
+        "start-date": start_date,
+        "end-date":   end_date,
+    }
+    if bbox:
+        min_lon, min_lat, max_lon, max_lat = bbox
+        params["bbox"] = f"{min_lon},{min_lat},{max_lon},{max_lat}"
+
+    all_loitering: list[dict] = []
+    url = f"{GFW_BASE_URL}/v3/events"
+
+    try:
+        while len(all_loitering) < limit:
+            logger.info(
+                f"[Loitering] Consultando loitering "
+                f"(offset={params['offset']})..."
+            )
+            r = requests.get(url, headers=headers, params=params, timeout=25)
+            r.raise_for_status()
+            data = r.json()
+
+            entries = data.get("entries", [])
+            if not entries:
+                break
+
+            for ev in entries:
+                pos = ev.get("position", {}) or {}
+                lat = pos.get("lat")
+                lon = pos.get("lon")
+                vessel = ev.get("vessel", {}) or {}
+
+                start = ev.get("start", "")
+                end_t = ev.get("end", "")
+                duration_h = 0.0
+                try:
+                    from datetime import datetime
+                    fmt = "%Y-%m-%dT%H:%M:%S.%fZ"
+                    t0 = datetime.strptime(start, fmt)
+                    t1 = datetime.strptime(end_t, fmt)
+                    duration_h = (t1 - t0).total_seconds() / 3600.0
+                except Exception:
+                    pass
+
+                all_loitering.append({
+                    "loitering_id": ev.get("id", ""),
+                    "vessel_id":    vessel.get("id", ""),
+                    "mmsi":         vessel.get("ssvid", ""),
+                    "shipname":     vessel.get("name", ""),
+                    "flag":         vessel.get("flag", ""),
+                    "lat":          lat,
+                    "lon":          lon,
+                    "start":        start,
+                    "end":          end_t,
+                    "duration_h":   round(duration_h, 2),
+                    "source":       "GFW_loitering",
+                })
+
+            total = data.get("total", 0)
+            next_offset = params["offset"] + params["limit"]
+            if next_offset < total and next_offset < limit:
+                params["offset"] = next_offset
+            else:
+                break
+
+        with open(LOITERING_CACHE, "w") as f:
+            json.dump(all_loitering, f, indent=2)
+        logger.info(f"[Loitering] {len(all_loitering)} eventos de merodeo encontrados.")
+
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"[Loitering] HTTP {e.response.status_code}: {e.response.text[:200]}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Loitering] Error de red: {e}")
+
+    return all_loitering
+
+
+# ================================================================
+# FUENTE 9: GFW — Fishing Effort Report (4Wings)
+# ================================================================
+FISHING_EFFORT_CACHE  = "data/gfw_fishing_effort_cache.json"
+FISHING_EFFORT_EXPIRY = 21600   # 6 horas
+
+def fetch_fishing_effort_report(
+    polygon_coords: list[list[float]] | None = None,
+    eez_id: int | None = 8383,
+    start_date: str = "2023-01-01",
+    end_date:   str = "2023-12-31",
+    group_by: str = "gearType",
+    spatial_resolution: str = "low",
+    temporal_resolution: str = "yearly",
+) -> list[dict]:
+    """
+    Genera un reporte de esfuerzo pesquero aparente usando el endpoint 4Wings.
+    Dataset: public-global-fishing-effort:latest
+
+    El esfuerzo pesquero es un proxy de productividad biológica:
+    zonas con más pesca tienden a tener más biomasa y más megafauna.
+    """
+    os.makedirs("data", exist_ok=True)
+
+    if os.path.exists(FISHING_EFFORT_CACHE):
+        age = time.time() - os.path.getmtime(FISHING_EFFORT_CACHE)
+        if age < FISHING_EFFORT_EXPIRY:
+            try:
+                with open(FISHING_EFFORT_CACHE, "r") as f:
+                    cached = json.load(f)
+                logger.info(f"[Fishing Effort] Usando caché ({len(cached)} celdas)")
+                return cached
+            except json.JSONDecodeError:
+                pass
+
+    token = os.environ.get("GFW_API_TOKEN")
+    if not token:
+        logger.warning("[Fishing Effort] GFW_API_TOKEN no disponible.")
+        return []
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type":  "application/json",
+    }
+
+    query_params: dict = {
+        "datasets[0]":         "public-global-fishing-effort:latest",
+        "start-date":          start_date,
+        "end-date":            end_date,
+        "spatial-resolution":  spatial_resolution,
+        "temporal-resolution": temporal_resolution,
+        "group-by":            group_by,
+    }
+
+    if polygon_coords:
+        body = {
+            "region": {
+                "type": "Feature",
+                "geometry": {
+                    "type":        "Polygon",
+                    "coordinates": [polygon_coords],
+                },
+            }
+        }
+    else:
+        body = {
+            "region": {
+                "dataset": "public-eez-areas:v12",
+                "id":      eez_id,
+            }
+        }
+
+    url = f"{GFW_BASE_URL}/v3/4wings/report"
+    all_cells: list[dict] = []
+
+    try:
+        logger.info(
+            f"[Fishing Effort] Solicitando esfuerzo pesquero "
+            f"({start_date} → {end_date}, group={group_by})..."
+        )
+        r = requests.post(
+            url, headers=headers, params=query_params,
+            json=body, timeout=60
+        )
+        r.raise_for_status()
+        raw = r.json()
+
+        entries = raw if isinstance(raw, list) else raw.get("entries", [raw])
+
+        for cell in entries:
+            if not isinstance(cell, dict):
+                continue
+            all_cells.append({
+                "h3_index":        cell.get("h3", cell.get("cellId", "")),
+                "lat":             cell.get("lat"),
+                "lon":             cell.get("lon"),
+                "fishing_hours":   cell.get("hours", 0),
+                "group":           cell.get("group", ""),
+                "period":          cell.get("period", ""),
+                "source":          "GFW_fishing_effort",
+            })
+
+        with open(FISHING_EFFORT_CACHE, "w") as f:
+            json.dump(all_cells, f, indent=2)
+        logger.info(f"[Fishing Effort] {len(all_cells)} celdas de esfuerzo pesquero.")
+
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"[Fishing Effort] HTTP {e.response.status_code}: {e.response.text[:300]}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"[Fishing Effort] Error de red: {e}")
+
+    return all_cells

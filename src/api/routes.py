@@ -1,8 +1,12 @@
+"""
+ocean_proto / src / api / routes.py — GFW-ONLY
+===============================================
+API REST usando exclusivamente datos de Global Fishing Watch.
+"""
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 import json
 import os
-from .models import FeatureCollection, VesselRecord
 from typing import List
 import pandas as pd
 import geopandas as gpd
@@ -12,6 +16,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 KG_DIR = "data/knowledge_graph"
+
 
 def _load_geojson(filepath: str) -> dict:
     """Carga el GeoJSON de hotspots desde disco."""
@@ -24,47 +29,15 @@ def _load_geojson(filepath: str) -> dict:
 @router.get("/api/risk-hotspots")
 async def get_risk_hotspots():
     """
-    Endpoint principal del frontend: Devuelve los Risk Hotspots en GeoJSON.
-    Cada feature contiene h3_index, vessel_count, megafauna_count, risk_score.
+    Endpoint principal: Devuelve los Pressure Hotspots (IPA) en GeoJSON.
+    Cada feature contiene h3_index, vessel_count, ipa_100, ipa_level.
     """
     return _load_geojson("data/risk_hotspots.geojson")
 
 
-@router.get("/api/megafauna")
-async def get_megafauna():
-    """
-    Devuelve los avistamientos de megafauna (OBIS) como GeoJSON de puntos.
-    """
-    filepath = "data/obis_data.csv"
-    if not os.path.exists(filepath):
-        return {"type": "FeatureCollection", "features": []}
-
-    df = pd.read_csv(filepath)
-    features = []
-    for _, row in df.iterrows():
-        try:
-            feat = {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [float(row["decimalLongitude"]), float(row["decimalLatitude"])]
-                },
-                "properties": {
-                    "species": row.get("species", "Unknown"),
-                    "eventDate": str(row.get("eventDate", ""))
-                }
-            }
-            features.append(feat)
-        except (KeyError, ValueError):
-            continue
-    return {"type": "FeatureCollection", "features": features}
-
-
 @router.get("/api/vessels")
 async def get_vessels():
-    """
-    Devuelve las posiciones actuales de los buques (GFW) como GeoJSON de puntos.
-    """
+    """Devuelve las posiciones de los buques (GFW SAR) como GeoJSON."""
     filepath = "data/gfw_data.csv"
     if not os.path.exists(filepath):
         return {"type": "FeatureCollection", "features": []}
@@ -91,7 +64,7 @@ async def get_vessels():
     return {"type": "FeatureCollection", "features": features}
 
 
-# --- Alias legacy /api/v1/* para compatibilidad ---
+# --- Alias legacy ---
 @router.get("/api/v1/hotspots")
 async def get_hotspots_v1():
     return _load_geojson("data/risk_hotspots.geojson")
@@ -99,10 +72,7 @@ async def get_hotspots_v1():
 
 @router.get("/api/oil-platforms")
 async def get_oil_platforms():
-    """
-    Devuelve las plataformas O&G cargadas en caché como GeoJSON de puntos.
-    Fuente: BOEM ArcGIS REST + CSV manual del portal GFW.
-    """
+    """Devuelve las plataformas O&G en caché como GeoJSON."""
     filepath = "data/gfw_oil_platforms_cache.json"
     if not os.path.exists(filepath):
         return {"type": "FeatureCollection", "features": []}
@@ -124,7 +94,6 @@ async def get_oil_platforms():
                     "platform_id": p.get("platform_id", ""),
                     "category": p.get("category", "OIL"),
                     "label": p.get("label", ""),
-                    "sub_category": p.get("sub_category", ""),
                     "source": p.get("source", ""),
                 }
             }
@@ -136,10 +105,7 @@ async def get_oil_platforms():
 
 @router.get("/api/support-vessels")
 async def get_support_vessels():
-    """
-    Devuelve los buques de apoyo O&G (OSVs) en caché como GeoJSON.
-    Fuente: GFW Support Vessels dataset.
-    """
+    """Devuelve los buques de apoyo O&G (OSVs) en caché como GeoJSON."""
     filepath = "data/gfw_support_vessels_cache.json"
     if not os.path.exists(filepath):
         return {"type": "FeatureCollection", "features": []}
@@ -178,41 +144,47 @@ async def get_support_vessels():
 
 @router.get("/api/gap-events")
 async def get_gap_events():
-    """
-    Devuelve los AIS gap events (apagones de transpondedor) como GeoJSON.
-    Fuente: GFW Global Gaps Events dataset.
-    """
-    filepath = "data/gfw_gap_events_cache.json"
+    """Devuelve los AIS gap events como GeoJSON."""
+    return _load_cached_events("data/gfw_gap_events_cache.json", "gap")
+
+
+@router.get("/api/encounters")
+async def get_encounters():
+    """Devuelve los encounter events (transbordo potencial) como GeoJSON."""
+    return _load_cached_events("data/gfw_encounters_cache.json", "encounter")
+
+
+@router.get("/api/loitering")
+async def get_loitering():
+    """Devuelve los loitering events (merodeo) como GeoJSON."""
+    return _load_cached_events("data/gfw_loitering_cache.json", "loitering")
+
+
+def _load_cached_events(filepath: str, event_type: str) -> dict:
+    """Helper genérico para cargar eventos GFW cacheados como GeoJSON."""
     if not os.path.exists(filepath):
         return {"type": "FeatureCollection", "features": []}
     try:
         with open(filepath, 'r') as f:
-            gaps = json.load(f)
+            events = json.load(f)
     except (json.JSONDecodeError, IOError):
         return {"type": "FeatureCollection", "features": []}
     features = []
-    for g in gaps:
+    for ev in events:
         try:
-            lat = g.get("lat")
-            lon = g.get("lon")
+            lat = ev.get("lat")
+            lon = ev.get("lon")
             if lat is None or lon is None:
                 continue
+            props = {k: v for k, v in ev.items() if k not in ("lat", "lon")}
+            props["event_type"] = event_type
             feat = {
                 "type": "Feature",
                 "geometry": {
                     "type": "Point",
                     "coordinates": [float(lon), float(lat)]
                 },
-                "properties": {
-                    "gap_id": g.get("gap_id", ""),
-                    "mmsi": g.get("mmsi", ""),
-                    "shipname": g.get("shipname", ""),
-                    "flag": g.get("flag", ""),
-                    "gap_hours": g.get("gap_hours", 0),
-                    "start": g.get("start", ""),
-                    "end": g.get("end", ""),
-                    "source": g.get("source", ""),
-                }
+                "properties": props,
             }
             features.append(feat)
         except (KeyError, ValueError, TypeError):
@@ -220,50 +192,52 @@ async def get_gap_events():
     return {"type": "FeatureCollection", "features": features}
 
 
-def update_pipeline_task(build_kg: bool = False, enhanced: bool = True):
-    """Tarea en segundo plano: re-ingesta, recalcula hotspots (con criterios oceanográficos
-    si enhanced=True) y opcionalmente construye el KG."""
+def update_pipeline_task(build_kg: bool = False):
+    """Tarea en segundo plano: re-ingesta GFW-only + recalcula IPA."""
     try:
         from src.pipeline.ingest import run_ingestion
         from datetime import datetime
-        logger.info("Iniciando actualización de datos geoespaciales...")
-        gfw, obis, platforms, support, gaps = run_ingestion('data/obis_data.csv')
+        logger.info("Iniciando actualización GFW-Only...")
 
-        if enhanced:
-            from src.pipeline.spatial_join import compute_enhanced_risk_hotspots
-            current_month = datetime.now().month
-            compute_enhanced_risk_hotspots(
-                gfw, obis, gaps_gdf=gaps,
-                output_path='data/risk_hotspots.geojson',
-                analysis_month=current_month,
-            )
-            logger.info("Actualización geoespacial ENHANCED completada (criterios oceanográficos).")
-        else:
-            from src.pipeline.spatial_join import compute_risk_hotspots
-            compute_risk_hotspots(gfw, obis, 'data/risk_hotspots.geojson')
-            logger.info("Actualización geoespacial baseline completada.")
+        (gfw, platforms, support, gaps,
+         encounters, loitering, effort, heatmap) = run_ingestion()
+
+        from src.pipeline.spatial_join import compute_gfw_only_hotspots
+        current_month = datetime.now().month
+        compute_gfw_only_hotspots(
+            gfw,
+            gaps_gdf=gaps,
+            encounters_gdf=encounters,
+            loitering_gdf=loitering,
+            platforms_gdf=platforms,
+            support_gdf=support,
+            fishing_effort_df=effort,
+            presence_df=heatmap,
+            output_path='data/risk_hotspots.geojson',
+            analysis_month=current_month,
+        )
+        logger.info("Pipeline GFW-Only completado (IPA).")
 
         if build_kg:
             from src.pipeline.knowledge_graph import build_and_export
-            logger.info("Construyendo Knowledge Graph v3...")
-            gfw_df       = pd.DataFrame(gfw.drop(columns='geometry', errors='ignore'))
-            obis_df      = pd.DataFrame(obis.drop(columns='geometry', errors='ignore'))
-            platforms_df  = pd.DataFrame(platforms.drop(columns='geometry', errors='ignore'))
-            support_df    = pd.DataFrame(support.drop(columns='geometry', errors='ignore'))
-            gaps_df       = pd.DataFrame(gaps.drop(columns='geometry', errors='ignore'))
+            logger.info("Construyendo Knowledge Graph...")
+            gfw_df = pd.DataFrame(gfw.drop(columns='geometry', errors='ignore'))
+            platforms_df = pd.DataFrame(platforms.drop(columns='geometry', errors='ignore'))
+            support_df = pd.DataFrame(support.drop(columns='geometry', errors='ignore'))
+            gaps_df = pd.DataFrame(gaps.drop(columns='geometry', errors='ignore'))
             hotspots_df = None
             if os.path.exists('data/risk_hotspots.geojson'):
                 gdf = gpd.read_file('data/risk_hotspots.geojson')
                 hotspots_df = pd.DataFrame(gdf.drop(columns='geometry', errors='ignore'))
             build_and_export(
-                gfw_df, obis_df,
+                gfw_df, pd.DataFrame(),  # empty obis
                 platforms_df=platforms_df,
                 support_df=support_df,
                 gaps_df=gaps_df,
                 hotspots_df=hotspots_df,
                 out_dir=KG_DIR,
             )
-            logger.info("Knowledge Graph v3 construido exitosamente.")
+            logger.info("Knowledge Graph construido.")
     except Exception as e:
         logger.error(f"Error ejecutando el pipeline: {e}", exc_info=True)
 
@@ -272,201 +246,33 @@ def update_pipeline_task(build_kg: bool = False, enhanced: bool = True):
 async def trigger_refresh(
     background_tasks: BackgroundTasks,
     build_kg: bool = False,
-    enhanced: bool = True,
 ):
     """
-    Lanza el pipeline de ingesta + spatial join en segundo plano.
-    - build_kg=true  → también reconstruye el Knowledge Graph.
-    - enhanced=true  → usa criterios oceanográficos (SST, Chl-a, acústico, etc.).
-    - enhanced=false → solo score baseline vessel × megafauna.
+    Lanza el pipeline GFW-Only en segundo plano.
+    - build_kg=true → también reconstruye el Knowledge Graph.
     """
-    background_tasks.add_task(update_pipeline_task, build_kg, enhanced)
-    msg = (
-        "Pipeline ENHANCED (criterios oceanográficos) lanzado"
-        if enhanced else
-        "Pipeline baseline lanzado en segundo plano"
-    )
+    background_tasks.add_task(update_pipeline_task, build_kg)
+    msg = "Pipeline GFW-Only (IPA) lanzado en segundo plano"
     if build_kg:
         msg += " + Knowledge Graph"
     return {"status": "processing", "message": msg}
 
 
-@router.get("/api/knowledge-graph")
-async def get_knowledge_graph():
-    """
-    Devuelve el Knowledge Graph en formato graph.json (NetworkX node-link).
-    Compatible con Graphify y con D3.js force-directed graph.
-    """
-    path = os.path.join(KG_DIR, "graph.json")
-    if not os.path.exists(path):
-        raise HTTPException(
-            status_code=404,
-            detail="Knowledge Graph no encontrado. Ejecuta POST /api/refresh?build_kg=true"
-        )
-    return FileResponse(path, media_type="application/json")
-
-
-@router.get("/api/graph/stats")
-async def get_graph_stats():
-    """
-    Devuelve estadísticas resumidas del Knowledge Graph (nodos, aristas, tipos).
-    """
-    path = os.path.join(KG_DIR, "graph.json")
-    if not os.path.exists(path):
-        return {"status": "not_built", "nodes": 0, "edges": 0, "node_types": {}}
-    try:
-        with open(path) as f:
-            data = json.load(f)
-        nodes      = data.get("nodes", [])
-        links      = data.get("links", [])
-        node_types: dict = {}
-        for n in nodes:
-            t = n.get("type", "Unknown")
-            node_types[t] = node_types.get(t, 0) + 1
-        return {
-            "status":     "ready",
-            "nodes":      len(nodes),
-            "edges":      len(links),
-            "node_types": node_types,
-            "graph_name": data.get("graph", {}).get("name", ""),
-            "created":    data.get("graph", {}).get("created", ""),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/api/graph/report")
-async def get_graph_report():
-    """
-    Devuelve el GRAPH_REPORT.md como texto plano.
-    """
-    path = os.path.join(KG_DIR, "GRAPH_REPORT.md")
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Reporte no encontrado.")
-    return FileResponse(path, media_type="text/markdown")
-
-
-# ── Nuevos endpoints: Criterios Oceanográficos ────────────────────────────────
-
-@router.get("/api/oceanographic/sst")
-async def get_sst(use_cache: bool = True):
-    """
-    Devuelve temperatura superficial del mar (SST) del área de interés.
-    Fuente: NOAA OISST v2.1 via ERDDAP. Caché local de 24h.
-    """
-    try:
-        from src.pipeline.oceanographic import fetch_sst_erddap
-        df = fetch_sst_erddap(use_cache=use_cache)
-        if df.empty:
-            return {"status": "no_data", "features": []}
-        features = []
-        for _, row in df.iterrows():
-            try:
-                features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [float(row["longitude"]), float(row["latitude"])]
-                    },
-                    "properties": {
-                        "time":         str(row.get("time", "")),
-                        "sst":          round(float(row.get("sst", 0)), 2),
-                        "sst_anomaly":  round(float(row.get("sst_anomaly", 0) or 0), 2),
-                    }
-                })
-            except (ValueError, TypeError):
-                continue
-        return {"type": "FeatureCollection", "features": features, "count": len(features)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/api/oceanographic/chlorophyll")
-async def get_chlorophyll(use_cache: bool = True):
-    """
-    Devuelve concentración de Clorofila-a (mg/m³).
-    Fuente: MODIS Aqua 8-day composite via ERDDAP. Caché de 8 días.
-    """
-    try:
-        from src.pipeline.oceanographic import fetch_chlorophyll_erddap
-        df = fetch_chlorophyll_erddap(use_cache=use_cache)
-        if df.empty:
-            return {"status": "no_data", "features": []}
-        features = []
-        for _, row in df.iterrows():
-            try:
-                features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [float(row["longitude"]), float(row["latitude"])]
-                    },
-                    "properties": {
-                        "time":             str(row.get("time", "")),
-                        "chlorophyll_mg_m3": round(float(row.get("chlorophyll_mg_m3", 0)), 4),
-                    }
-                })
-            except (ValueError, TypeError):
-                continue
-        return {"type": "FeatureCollection", "features": features, "count": len(features)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/api/oceanographic/bathymetry")
-async def get_bathymetry(use_cache: bool = True):
-    """
-    Devuelve datos batimétricos del área (ETOPO2022).
-    Los datos son estáticos — la caché es permanente hasta ser borrada.
-    """
-    try:
-        from src.pipeline.oceanographic import fetch_bathymetry_erddap
-        df = fetch_bathymetry_erddap(use_cache=use_cache)
-        if df.empty:
-            return {"status": "no_data", "features": []}
-        features = []
-        for _, row in df.iterrows():
-            try:
-                features.append({
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [float(row["longitude"]), float(row["latitude"])]
-                    },
-                    "properties": {
-                        "depth_m":      round(float(row.get("depth_m", 0) or 0), 1),
-                        "elevation_m":  round(float(row.get("elevation_m", 0) or 0), 1),
-                    }
-                })
-            except (ValueError, TypeError):
-                continue
-        return {"type": "FeatureCollection", "features": features, "count": len(features)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/api/seasonal/{month}")
 async def get_seasonal_summary(month: int):
-    """
-    Devuelve el resumen de estacionalidad para un mes dado (1-12).
-    Incluye las especies en temporada pico y el multiplicador de riesgo máximo.
-    """
+    """Devuelve el resumen de estacionalidad pesquera para un mes dado."""
     if not 1 <= month <= 12:
         raise HTTPException(status_code=400, detail="El mes debe estar entre 1 y 12.")
     try:
         from src.pipeline.seasonal import compute_seasonal_summary
-        summary = compute_seasonal_summary(month)
-        return summary
+        return compute_seasonal_summary(month)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/acoustic-risk")
 async def get_acoustic_risk():
-    """
-    Devuelve el nivel de ruido acústico estimado por celda H3 como GeoJSON.
-    Calcula SPL acumulado en dB re 1μPa basado en las detecciones de embarcaciones.
-    """
+    """Devuelve el nivel de ruido acústico estimado por celda H3 como GeoJSON."""
     filepath = "data/gfw_data.csv"
     if not os.path.exists(filepath):
         return {"type": "FeatureCollection", "features": []}
@@ -474,7 +280,6 @@ async def get_acoustic_risk():
         import h3 as h3lib
         from src.pipeline.acoustic_model import compute_acoustic_risk_per_hex
         from src.pipeline.spatial_join import get_h3_index, cell_to_polygon, H3_RESOLUTION
-        import geopandas as gpd
 
         df = pd.read_csv(filepath)
         if df.empty:
@@ -506,3 +311,53 @@ async def get_acoustic_risk():
         return {"type": "FeatureCollection", "features": features}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Knowledge Graph endpoints ────────────────────────────────────────────────
+
+@router.get("/api/knowledge-graph")
+async def get_knowledge_graph():
+    """Devuelve el Knowledge Graph en formato graph.json."""
+    path = os.path.join(KG_DIR, "graph.json")
+    if not os.path.exists(path):
+        raise HTTPException(
+            status_code=404,
+            detail="Knowledge Graph no encontrado. Ejecuta POST /api/refresh?build_kg=true"
+        )
+    return FileResponse(path, media_type="application/json")
+
+
+@router.get("/api/graph/stats")
+async def get_graph_stats():
+    """Devuelve estadísticas resumidas del Knowledge Graph."""
+    path = os.path.join(KG_DIR, "graph.json")
+    if not os.path.exists(path):
+        return {"status": "not_built", "nodes": 0, "edges": 0, "node_types": {}}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        nodes = data.get("nodes", [])
+        links = data.get("links", [])
+        node_types: dict = {}
+        for n in nodes:
+            t = n.get("type", "Unknown")
+            node_types[t] = node_types.get(t, 0) + 1
+        return {
+            "status":     "ready",
+            "nodes":      len(nodes),
+            "edges":      len(links),
+            "node_types": node_types,
+            "graph_name": data.get("graph", {}).get("name", ""),
+            "created":    data.get("graph", {}).get("created", ""),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/graph/report")
+async def get_graph_report():
+    """Devuelve el GRAPH_REPORT.md como texto plano."""
+    path = os.path.join(KG_DIR, "GRAPH_REPORT.md")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Reporte no encontrado.")
+    return FileResponse(path, media_type="text/markdown")

@@ -1,34 +1,26 @@
 """
-ocean_proto / src / pipeline / risk_scoring.py
-=============================================
-Motor de composite risk scoring multidimensional.
+ocean_proto / src / pipeline / risk_scoring.py — GFW-ONLY
+=========================================================
+Motor de Índice de Presión Antrópica (IPA) usando exclusivamente datos GFW.
 
-Integra todos los criterios oceanográficos + bióticos + antrópicos
-en un único Composite Risk Score (CRS) por celda H3.
-
-Score actual (baseline):
-  risk_score = vessel_count × megafauna_count  [proxy simple]
-
-Nuevo Composite Risk Score:
-  CRS = Σ(w_i × normalized_score_i) × temporal_modifier
+A diferencia del CRS (Composite Risk Score) del pipeline combinado que usa
+datos biológicos de OBIS y oceanográficos de ERDDAP, el IPA mide la
+intensidad de actividad humana por celda H3 como proxy de riesgo.
 
 Criterios y pesos:
-  w_co_occurrence  = 0.25  →  vessel × megafauna (base)
-  w_acoustic       = 0.20  →  SPL acumulado en celda
-  w_sst            = 0.15  →  Proximidad al rango óptimo de SST
-  w_productivity   = 0.15  →  Clorofila-a (intensidad de upwelling)
-  w_gap_events     = 0.10  →  Densidad de apagones AIS
-  w_bathymetry     = 0.10  →  Overlap hábitat-profundidad
-  w_current        = 0.05  →  Índice de upwelling
+  w_traffic_density   = 0.25  →  SAR + 4Wings presence (densidad de tráfico)
+  w_acoustic           = 0.20  →  SPL acumulado en celda
+  w_fishing_effort     = 0.15  →  Horas de pesca (proxy biológico)
+  w_behavior_anomaly   = 0.15  →  Gaps + Encounters + Loitering
+  w_og_pressure        = 0.10  →  Plataformas + OSVs
+  w_corridor_intensity = 0.10  →  Volumen de presencia en ruta
+  w_identity_risk      = 0.05  →  Placeholder para Vessel Insights futuro
 
-Todos los scores parciales se normalizan a [0, 1] antes de ponderar.
-El temporal_modifier amplifica el CRS según la estacionalidad de las
-especies presentes en la celda.
+Todos los scores se normalizan a [0, 1] antes de ponderar.
 """
 
 import logging
 import math
-from datetime import datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -37,51 +29,18 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-# ── Pesos del composite score ─────────────────────────────────────────────────
+# ── Pesos del IPA ─────────────────────────────────────────────────────────────
 WEIGHTS: Dict[str, float] = {
-    "co_occurrence": 0.25,
-    "acoustic":      0.20,
-    "sst":           0.15,
-    "productivity":  0.15,
-    "gap_events":    0.10,
-    "bathymetry":    0.10,
-    "upwelling":     0.05,
+    "traffic_density":    0.25,
+    "acoustic":           0.20,
+    "fishing_effort":     0.15,
+    "behavior_anomaly":   0.15,
+    "og_pressure":        0.10,
+    "corridor_intensity": 0.10,
+    "identity_risk":      0.05,
 }
 
 assert abs(sum(WEIGHTS.values()) - 1.0) < 1e-9, "Los pesos deben sumar 1.0"
-
-# ── Rangos óptimos de SST por especie (°C) ────────────────────────────────────
-# Fuente: literatura de biología marina del Golfo de California
-SST_OPTIMAL_RANGES: Dict[str, tuple] = {
-    "Balaenoptera musculus":   (16.0, 24.0),
-    "Balaenoptera physalus":   (14.0, 22.0),
-    "Balaenoptera borealis":   (10.0, 20.0),
-    "Megaptera novaeangliae":  (18.0, 26.0),
-    "Eschrichtius robustus":   (10.0, 20.0),
-    "Eubalaena japonica":      (8.0,  18.0),
-    "Physeter macrocephalus":  (15.0, 30.0),
-    "Kogia breviceps":         (15.0, 28.0),
-    "Ziphius cavirostris":     (14.0, 28.0),
-    "Mesoplodon densirostris": (15.0, 28.0),
-    "Rhincodon typus":         (22.0, 30.0),
-    "Manta birostris":         (20.0, 30.0),
-}
-
-# Rango batimétrico preferido por especie (metros de profundidad)
-DEPTH_PREFERRED_RANGES: Dict[str, tuple] = {
-    "Balaenoptera musculus":   (50,  3000),   # alimentación en pared continental
-    "Balaenoptera physalus":   (100, 2000),
-    "Balaenoptera borealis":   (100, 2000),
-    "Megaptera novaeangliae":  (0,   2000),   # costera y pelágica
-    "Eschrichtius robustus":   (0,   100),    # lagunas y aguas someras
-    "Eubalaena japonica":      (0,   500),
-    "Physeter macrocephalus":  (200, 6000),   # buceador profundo
-    "Kogia breviceps":         (200, 4000),
-    "Ziphius cavirostris":     (500, 5000),   # cañones profundos
-    "Mesoplodon densirostris": (200, 3000),
-    "Rhincodon typus":         (0,   700),    # epipelágico
-    "Manta birostris":         (0,   500),    # superficie y epipelágico
-}
 
 
 # ── Funciones de normalización ────────────────────────────────────────────────
@@ -93,108 +52,64 @@ def _normalize_minmax(value: float, min_val: float, max_val: float) -> float:
     return max(0.0, min(1.0, (value - min_val) / (max_val - min_val)))
 
 
-def _sst_proximity_score(sst: float, species_list: List[str]) -> float:
-    """
-    Calcula cuánto se superpone la SST actual con el rango óptimo
-    de las especies presentes en la celda.
-
-    Retorna: [0, 1] — 1 = todas las especies en rango óptimo
-    """
-    if not species_list or math.isnan(sst):
-        return 0.0
-
-    scores = []
-    for sp in species_list:
-        opt_range = SST_OPTIMAL_RANGES.get(sp)
-        if not opt_range:
-            scores.append(0.5)  # neutral si desconocido
-            continue
-        lo, hi = opt_range
-        if lo <= sst <= hi:
-            # Dentro del rango: score = 1 (bonus si está cerca del centro)
-            center = (lo + hi) / 2
-            distance_from_center = abs(sst - center) / ((hi - lo) / 2)
-            scores.append(1.0 - 0.3 * distance_from_center)
-        else:
-            # Fuera del rango: decae linealmente con la distancia
-            deviation = min(abs(sst - lo), abs(sst - hi))
-            score = max(0.0, 1.0 - deviation / 5.0)   # decae a 0 en 5°C fuera
-            scores.append(score)
-
-    return float(np.mean(scores)) if scores else 0.0
-
-
-def _depth_habitat_score(depth_m: float, species_list: List[str]) -> float:
-    """
-    Calcula cuánto se superpone la batimetría de la celda con el
-    rango preferido de profundidad de las especies presentes.
-
-    Retorna: [0, 1]
-    """
-    if not species_list or math.isnan(depth_m):
-        return 0.5  # valor neutral si no hay datos
-
-    scores = []
-    for sp in species_list:
-        depth_range = DEPTH_PREFERRED_RANGES.get(sp)
-        if not depth_range:
-            scores.append(0.5)
-            continue
-        lo, hi = depth_range
-        if lo <= depth_m <= hi:
-            scores.append(1.0)
-        else:
-            deviation = min(abs(depth_m - lo), abs(depth_m - hi))
-            score = max(0.0, 1.0 - deviation / 500.0)
-            scores.append(score)
-
-    return float(np.mean(scores)) if scores else 0.5
-
-
 # ── Motor principal ───────────────────────────────────────────────────────────
 
-def compute_composite_risk_score(
-    hotspots_df:   pd.DataFrame,
-    acoustic_df:   pd.DataFrame          = None,
-    sst_grid:      pd.DataFrame          = None,
-    chl_grid:      pd.DataFrame          = None,
-    bathy_grid:    pd.DataFrame          = None,
-    upwelling_df:  pd.DataFrame          = None,
-    gaps_hex_df:   pd.DataFrame          = None,
-    species_per_hex: Dict[str, List[str]] = None,
-    analysis_month: Optional[int]         = None,
+def compute_anthropic_pressure_index(
+    hotspots_df:        pd.DataFrame,
+    acoustic_df:        pd.DataFrame = None,
+    gaps_hex_df:        pd.DataFrame = None,
+    encounters_hex_df:  pd.DataFrame = None,
+    loitering_hex_df:   pd.DataFrame = None,
+    fishing_effort_df:  pd.DataFrame = None,
+    presence_df:        pd.DataFrame = None,
+    platforms_hex_df:   pd.DataFrame = None,
+    support_hex_df:     pd.DataFrame = None,
+    analysis_month:     Optional[int] = None,
 ) -> pd.DataFrame:
     """
-    Calcula el Composite Risk Score para cada celda H3.
+    Calcula el Índice de Presión Antrópica (IPA) para cada celda H3.
 
     Parámetros
     ----------
-    hotspots_df     : DataFrame base [h3_index, vessel_count, megafauna_count, risk_score]
-    acoustic_df     : DataFrame [h3_index, estimated_spl_db, acoustic_risk_score]
-    sst_grid        : DataFrame [grid_lat, grid_lon, sst_mean]
-    chl_grid        : DataFrame [grid_lat, grid_lon, chlorophyll_mg_m3]
-    bathy_grid      : DataFrame [grid_lat, grid_lon, depth_m]  (si disponible)
-    upwelling_df    : DataFrame [grid_lat, grid_lon, upwelling_index]
-    gaps_hex_df     : DataFrame [h3_index, gap_count]
-    species_per_hex : dict {h3_index: [list de especies observadas]}
-    analysis_month  : mes para el modificador temporal (1-12)
+    hotspots_df       : DataFrame base [h3_index, vessel_count]
+    acoustic_df       : DataFrame [h3_index, estimated_spl_db, acoustic_risk_score]
+    gaps_hex_df       : DataFrame [h3_index, gap_count]
+    encounters_hex_df : DataFrame [h3_index, encounter_count]
+    loitering_hex_df  : DataFrame [h3_index, loitering_count]
+    fishing_effort_df : DataFrame [h3_index, fishing_hours]
+    presence_df       : DataFrame [h3_index, hours]
+    platforms_hex_df  : DataFrame [h3_index, platform_count]
+    support_hex_df    : DataFrame [h3_index, support_count]
+    analysis_month    : mes para modificador temporal (1-12)
 
     Retorna
     -------
-    DataFrame: [h3_index, crs, crs_level, ...sub-scores...]
+    DataFrame: [h3_index, ipa, ipa_100, ipa_level, ...sub-scores...]
     """
     if hotspots_df.empty:
-        logger.warning("[CRS] hotspots_df vacío — sin composite score.")
+        logger.warning("[IPA] hotspots_df vacío — sin índice de presión.")
         return pd.DataFrame()
 
     df = hotspots_df.copy()
     df["h3_index"] = df["h3_index"].astype(str)
 
-    # ── 1. Score de Co-ocurrencia (normalizado) ────────────────────────────
-    max_cooc = df["risk_score"].max()
-    df["score_co_occurrence"] = df["risk_score"].apply(
-        lambda x: _normalize_minmax(x, 0, max_cooc) if max_cooc > 0 else 0.0
+    # ── 1. Score de Densidad de Tráfico ────────────────────────────────────
+    max_vc = df["vessel_count"].max()
+    df["score_traffic_density"] = df["vessel_count"].apply(
+        lambda x: _normalize_minmax(x, 0, max_vc) if max_vc > 0 else 0.0
     )
+
+    # Enriquecer con 4Wings presence si disponible
+    if presence_df is not None and not presence_df.empty and "h3_index" in presence_df.columns:
+        pres_map = presence_df.groupby("h3_index")["hours"].sum().to_dict()
+        max_pres = max(pres_map.values()) if pres_map else 1
+        pres_scores = df["h3_index"].map(
+            lambda h: _normalize_minmax(pres_map.get(h, 0), 0, max_pres)
+        )
+        # Promedio ponderado: 60% SAR + 40% AIS presence
+        df["score_traffic_density"] = (
+            0.6 * df["score_traffic_density"] + 0.4 * pres_scores
+        )
 
     # ── 2. Score Acústico ──────────────────────────────────────────────────
     if acoustic_df is not None and not acoustic_df.empty:
@@ -210,180 +125,161 @@ def compute_composite_risk_score(
         df["score_acoustic"]   = 0.0
         df["estimated_spl_db"] = 0.0
 
-    # ── 3. Score SST ───────────────────────────────────────────────────────
-    # Aproximación: asignar SST al centroide de la celda H3
-    df["score_sst"] = 0.5  # valor neutral por defecto
-    df["sst_mean"]  = float("nan")
+    # ── 3. Score de Esfuerzo Pesquero (proxy biológico) ────────────────────
+    df["score_fishing_effort"] = 0.0
+    df["fishing_hours"]        = 0.0
 
-    if sst_grid is not None and not sst_grid.empty and species_per_hex:
-        try:
-            import h3 as h3lib
-            for idx, row in df.iterrows():
-                hex_id = row["h3_index"]
-                lat, lon = h3lib.cell_to_latlng(hex_id)
-                # Buscar celda de grilla SST más cercana
-                lat_col = "grid_lat" if "grid_lat" in sst_grid.columns else "latitude"
-                lon_col = "grid_lon" if "grid_lon" in sst_grid.columns else "longitude"
-                sst_col = "sst_mean" if "sst_mean" in sst_grid.columns else "sst"
-
-                dists = np.sqrt(
-                    (sst_grid[lat_col] - lat) ** 2 +
-                    (sst_grid[lon_col] - lon) ** 2
+    if fishing_effort_df is not None and not fishing_effort_df.empty:
+        if "h3_index" in fishing_effort_df.columns:
+            effort_map = fishing_effort_df.groupby("h3_index")["fishing_hours"].sum().to_dict()
+        elif "lat" in fishing_effort_df.columns and "lon" in fishing_effort_df.columns:
+            # Asignar celdas H3 al esfuerzo pesquero
+            try:
+                import h3 as h3lib
+                from src.pipeline.spatial_join import H3_RESOLUTION
+                fishing_effort_df = fishing_effort_df.copy()
+                fishing_effort_df["h3_index"] = fishing_effort_df.apply(
+                    lambda r: h3lib.latlng_to_cell(r["lat"], r["lon"], H3_RESOLUTION)
+                    if pd.notna(r.get("lat")) and pd.notna(r.get("lon")) else "",
+                    axis=1
                 )
-                nearest_idx = dists.idxmin()
-                sst_val = sst_grid.loc[nearest_idx, sst_col]
-                df.at[idx, "sst_mean"] = sst_val
+                effort_map = fishing_effort_df.groupby("h3_index")["fishing_hours"].sum().to_dict()
+            except Exception:
+                effort_map = {}
+        else:
+            effort_map = {}
 
-                sp_list = species_per_hex.get(hex_id, [])
-                df.at[idx, "score_sst"] = _sst_proximity_score(float(sst_val), sp_list)
-        except ImportError:
-            logger.warning("[CRS] h3 no disponible para cálculo de SST por celda.")
-        except Exception as e:
-            logger.warning(f"[CRS] Error calculando score SST: {e}")
+        if effort_map:
+            max_effort = max(effort_map.values())
+            df["fishing_hours"] = df["h3_index"].map(lambda h: effort_map.get(h, 0))
+            df["score_fishing_effort"] = df["h3_index"].map(
+                lambda h: _normalize_minmax(effort_map.get(h, 0), 0, max_effort)
+            )
 
-    # ── 4. Score Productividad (Clorofila-a) ───────────────────────────────
-    df["score_productivity"] = 0.0
-    df["chlorophyll_mg_m3"]  = float("nan")
+    # ── 4. Score de Anomalías de Comportamiento ───────────────────────────
+    # Compuesto de: gaps + encounters + loitering
+    gap_scores = pd.Series(0.0, index=df.index)
+    enc_scores = pd.Series(0.0, index=df.index)
+    loi_scores = pd.Series(0.0, index=df.index)
 
-    if chl_grid is not None and not chl_grid.empty:
-        try:
-            import h3 as h3lib
-            chl_col = "chlorophyll_mg_m3" if "chlorophyll_mg_m3" in chl_grid.columns else "chlorophyll"
-            lat_col = "grid_lat" if "grid_lat" in chl_grid.columns else "latitude"
-            lon_col = "grid_lon" if "grid_lon" in chl_grid.columns else "longitude"
-            max_chl = chl_grid[chl_col].quantile(0.95)  # usar p95 para normalizar
-
-            for idx, row in df.iterrows():
-                hex_id = row["h3_index"]
-                lat, lon = h3lib.cell_to_latlng(hex_id)
-                dists = np.sqrt(
-                    (chl_grid[lat_col] - lat) ** 2 +
-                    (chl_grid[lon_col] - lon) ** 2
-                )
-                nearest_idx = dists.idxmin()
-                chl_val = chl_grid.loc[nearest_idx, chl_col]
-                df.at[idx, "chlorophyll_mg_m3"] = chl_val
-                df.at[idx, "score_productivity"] = _normalize_minmax(float(chl_val), 0, max_chl)
-        except Exception as e:
-            logger.warning(f"[CRS] Error calculando score Chl-a: {e}")
-
-    # ── 5. Score Gap Events ────────────────────────────────────────────────
     if gaps_hex_df is not None and not gaps_hex_df.empty and "h3_index" in gaps_hex_df.columns:
         gap_map = gaps_hex_df.set_index("h3_index")["gap_count"].to_dict()
         max_gaps = max(gap_map.values()) if gap_map else 1
-        df["score_gap_events"] = df["h3_index"].map(
+        gap_scores = df["h3_index"].map(
             lambda h: _normalize_minmax(gap_map.get(h, 0), 0, max_gaps)
         )
         df["gap_count"] = df["h3_index"].map(lambda h: gap_map.get(h, 0))
     else:
-        df["score_gap_events"] = 0.0
-        df["gap_count"]        = 0
+        df["gap_count"] = 0
 
-    # ── 6. Score Batimetría ────────────────────────────────────────────────
-    df["score_bathymetry"] = 0.5
-    df["depth_m"]          = float("nan")
-
-    if bathy_grid is not None and not bathy_grid.empty and species_per_hex:
-        try:
-            import h3 as h3lib
-            lat_col   = "grid_lat" if "grid_lat" in bathy_grid.columns else "latitude"
-            lon_col   = "grid_lon" if "grid_lon" in bathy_grid.columns else "longitude"
-            depth_col = "depth_m"
-
-            if depth_col in bathy_grid.columns:
-                for idx, row in df.iterrows():
-                    hex_id = row["h3_index"]
-                    lat, lon = h3lib.cell_to_latlng(hex_id)
-                    dists = np.sqrt(
-                        (bathy_grid[lat_col] - lat) ** 2 +
-                        (bathy_grid[lon_col] - lon) ** 2
-                    )
-                    nearest_idx = dists.idxmin()
-                    depth_val = bathy_grid.loc[nearest_idx, depth_col]
-                    df.at[idx, "depth_m"]          = depth_val
-                    sp_list = species_per_hex.get(hex_id, [])
-                    df.at[idx, "score_bathymetry"] = _depth_habitat_score(float(depth_val), sp_list)
-        except Exception as e:
-            logger.warning(f"[CRS] Error calculando score batimetría: {e}")
-
-    # ── 7. Score Upwelling ─────────────────────────────────────────────────
-    if upwelling_df is not None and not upwelling_df.empty:
-        try:
-            import h3 as h3lib
-            lat_col = "grid_lat" if "grid_lat" in upwelling_df.columns else "latitude"
-            lon_col = "grid_lon" if "grid_lon" in upwelling_df.columns else "longitude"
-
-            upwelling_scores = []
-            for _, row in df.iterrows():
-                hex_id = row["h3_index"]
-                lat, lon = h3lib.cell_to_latlng(hex_id)
-                dists = np.sqrt(
-                    (upwelling_df[lat_col] - lat) ** 2 +
-                    (upwelling_df[lon_col] - lon) ** 2
-                )
-                nearest_idx = dists.idxmin()
-                upwelling_scores.append(upwelling_df.loc[nearest_idx, "upwelling_index"])
-            df["score_upwelling"] = upwelling_scores
-        except Exception as e:
-            logger.warning(f"[CRS] Error calculando score upwelling: {e}")
-            df["score_upwelling"] = 0.0
+    if encounters_hex_df is not None and not encounters_hex_df.empty and "h3_index" in encounters_hex_df.columns:
+        enc_map = encounters_hex_df.set_index("h3_index")["encounter_count"].to_dict()
+        max_enc = max(enc_map.values()) if enc_map else 1
+        enc_scores = df["h3_index"].map(
+            lambda h: _normalize_minmax(enc_map.get(h, 0), 0, max_enc)
+        )
+        df["encounter_count"] = df["h3_index"].map(lambda h: enc_map.get(h, 0))
     else:
-        df["score_upwelling"] = 0.0
+        df["encounter_count"] = 0
 
-    # ── 8. Composite Risk Score (CRS) ──────────────────────────────────────
+    if loitering_hex_df is not None and not loitering_hex_df.empty and "h3_index" in loitering_hex_df.columns:
+        loi_map = loitering_hex_df.set_index("h3_index")["loitering_count"].to_dict()
+        max_loi = max(loi_map.values()) if loi_map else 1
+        loi_scores = df["h3_index"].map(
+            lambda h: _normalize_minmax(loi_map.get(h, 0), 0, max_loi)
+        )
+        df["loitering_count"] = df["h3_index"].map(lambda h: loi_map.get(h, 0))
+    else:
+        df["loitering_count"] = 0
+
+    # Peso interno: gaps 50%, encounters 30%, loitering 20%
+    df["score_behavior_anomaly"] = (
+        0.50 * gap_scores + 0.30 * enc_scores + 0.20 * loi_scores
+    )
+
+    # ── 5. Score de Presión O&G ───────────────────────────────────────────
+    og_scores = pd.Series(0.0, index=df.index)
+
+    if platforms_hex_df is not None and not platforms_hex_df.empty and "h3_index" in platforms_hex_df.columns:
+        plat_map = platforms_hex_df.set_index("h3_index")["platform_count"].to_dict()
+        max_plat = max(plat_map.values()) if plat_map else 1
+        plat_scores = df["h3_index"].map(
+            lambda h: _normalize_minmax(plat_map.get(h, 0), 0, max_plat)
+        )
+        df["platform_count"] = df["h3_index"].map(lambda h: plat_map.get(h, 0))
+    else:
+        plat_scores = pd.Series(0.0, index=df.index)
+        df["platform_count"] = 0
+
+    if support_hex_df is not None and not support_hex_df.empty and "h3_index" in support_hex_df.columns:
+        supp_map = support_hex_df.set_index("h3_index")["support_count"].to_dict()
+        max_supp = max(supp_map.values()) if supp_map else 1
+        supp_scores = df["h3_index"].map(
+            lambda h: _normalize_minmax(supp_map.get(h, 0), 0, max_supp)
+        )
+        df["support_count"] = df["h3_index"].map(lambda h: supp_map.get(h, 0))
+    else:
+        supp_scores = pd.Series(0.0, index=df.index)
+        df["support_count"] = 0
+
+    df["score_og_pressure"] = 0.6 * plat_scores + 0.4 * supp_scores
+
+    # ── 6. Score de Intensidad de Corredor ─────────────────────────────────
+    # Usa el score de tráfico como base (en futuro: port visits + rutas)
+    df["score_corridor_intensity"] = df["score_traffic_density"]
+
+    # ── 7. Score de Riesgo por Identidad (placeholder) ─────────────────────
+    # En futuro: Vessel Insights API (IUU flags, PSMA violations)
+    df["score_identity_risk"] = 0.0
+
+    # ── 8. Índice de Presión Antrópica (IPA) ──────────────────────────────
     score_cols = {
-        "score_co_occurrence": WEIGHTS["co_occurrence"],
-        "score_acoustic":      WEIGHTS["acoustic"],
-        "score_sst":           WEIGHTS["sst"],
-        "score_productivity":  WEIGHTS["productivity"],
-        "score_gap_events":    WEIGHTS["gap_events"],
-        "score_bathymetry":    WEIGHTS["bathymetry"],
-        "score_upwelling":     WEIGHTS["upwelling"],
+        "score_traffic_density":    WEIGHTS["traffic_density"],
+        "score_acoustic":           WEIGHTS["acoustic"],
+        "score_fishing_effort":     WEIGHTS["fishing_effort"],
+        "score_behavior_anomaly":   WEIGHTS["behavior_anomaly"],
+        "score_og_pressure":        WEIGHTS["og_pressure"],
+        "score_corridor_intensity": WEIGHTS["corridor_intensity"],
+        "score_identity_risk":      WEIGHTS["identity_risk"],
     }
 
-    df["crs"] = sum(
+    df["ipa"] = sum(
         df[col] * weight for col, weight in score_cols.items()
     )
 
-    # ── 9. Modificador Temporal (Estacionalidad) ───────────────────────────
-    if analysis_month and species_per_hex:
-        from src.pipeline.seasonal import get_temporal_risk_modifier
-
-        def _temporal_modifier(hex_id: str) -> float:
-            sp_list = species_per_hex.get(hex_id, [])
-            if not sp_list:
-                return 1.0
-            modifiers = [
-                get_temporal_risk_modifier(sp, month=analysis_month)
-                for sp in sp_list
-            ]
-            return float(np.max(modifiers))   # usar el mayor modificador
-
-        df["temporal_modifier"] = df["h3_index"].map(_temporal_modifier)
-        df["crs"] = df["crs"] * df["temporal_modifier"]
+    # ── 9. Modificador Temporal (estacionalidad de pesca) ─────────────────
+    if analysis_month and fishing_effort_df is not None and not fishing_effort_df.empty:
+        from src.pipeline.seasonal import get_fishing_season_modifier
+        df["temporal_modifier"] = get_fishing_season_modifier(analysis_month)
+        df["ipa"] = df["ipa"] * df["temporal_modifier"]
     else:
         df["temporal_modifier"] = 1.0
 
-    # Normalizar CRS a [0, 100] para legibilidad
-    crs_max = df["crs"].max()
-    if crs_max > 0:
-        df["crs_100"] = (df["crs"] / crs_max * 100).round(2)
+    # Normalizar IPA a [0, 100]
+    ipa_max = df["ipa"].max()
+    if ipa_max > 0:
+        df["ipa_100"] = (df["ipa"] / ipa_max * 100).round(2)
     else:
-        df["crs_100"] = 0.0
+        df["ipa_100"] = 0.0
 
-    # ── 10. Nivel de Riesgo Categórico ────────────────────────────────────
-    def _risk_level(crs_norm: float) -> str:
-        if crs_norm >= 75:   return "CRITICAL"
-        elif crs_norm >= 50: return "HIGH"
-        elif crs_norm >= 25: return "MEDIUM"
+    # ── 10. Nivel de Presión Categórico ───────────────────────────────────
+    def _pressure_level(ipa_norm: float) -> str:
+        if ipa_norm >= 75:   return "CRITICAL"
+        elif ipa_norm >= 50: return "HIGH"
+        elif ipa_norm >= 25: return "MEDIUM"
         else:                return "LOW"
 
-    df["crs_level"] = df["crs_100"].apply(_risk_level)
+    df["ipa_level"] = df["ipa_100"].apply(_pressure_level)
+
+    # Alias para compatibilidad con el frontend existente
+    df["risk_score"] = df["ipa"]
+    df["crs_100"]    = df["ipa_100"]
+    df["crs_level"]  = df["ipa_level"]
 
     logger.info(
-        f"[CRS] Composite Risk Score calculado para {len(df)} celdas | "
-        f"CRITICAL: {(df.crs_level == 'CRITICAL').sum()} | "
-        f"HIGH: {(df.crs_level == 'HIGH').sum()} | "
-        f"MEDIUM: {(df.crs_level == 'MEDIUM').sum()}"
+        f"[IPA] Índice de Presión Antrópica calculado para {len(df)} celdas | "
+        f"CRITICAL: {(df.ipa_level == 'CRITICAL').sum()} | "
+        f"HIGH: {(df.ipa_level == 'HIGH').sum()} | "
+        f"MEDIUM: {(df.ipa_level == 'MEDIUM').sum()}"
     )
     return df
