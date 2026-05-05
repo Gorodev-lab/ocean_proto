@@ -1,0 +1,128 @@
+/* ── Esoteria Design System v1.0 — Global Tokens ── */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
+:root {
+  --color-background: #0A0A0A;
+  --color-surface: #111111;
+  --color-surface-2: #161616;
+  --color-border: #222222;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #AAAAAA;
+  --color-text-muted: #666666;
+  --color-text-disabled: #444444;
+  --color-accent: #C0392B;
+  --color-accent-hover: #A93226;
+  --color-status-active: #27AE60;
+  --color-status-pending: #F39C12;
+  --color-status-alert: #C0392B;
+
+  /* Layer colors */
+  --color-hotspots: #FD8D3C;
+  --color-vessels: #ff8844;
+  --color-megafauna: #44bbff;
+  --color-platforms: #ff5577;
+  --color-osvs: #ff66cc;
+  --color-gaps: #ffdd44;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background-color: var(--color-background);
+  color: var(--color-text-secondary);
+  font-family: 'IBM Plex Mono', 'Inter', system-ui, monospace;
+  overflow: hidden;
+}
+
+#__next, main {
+  height: 100%;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--color-background); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* Leaflet overrides */
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  color: var(--color-text-primary);
+  border-radius: 0;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.leaflet-popup-content { font-size: 14px; }
+.leaflet-control-zoom a {
+  background: var(--color-surface) !important;
+  color: var(--color-text-secondary) !important;
+  border-color: var(--color-border) !important;
+  border-radius: 0 !important;
+}
+.leaflet-control-zoom a:hover {
+  background: var(--color-accent) !important;
+  color: #fff !important;
+}
+.leaflet-control-attribution {
+  background: rgba(10, 10, 10, 0.8) !important;
+  color: var(--color-text-disabled) !important;
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a { color: var(--color-text-muted) !important; }
+
+/* Pulsing GAP marker */
+.gap-pulse {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255, 221, 68, 0.7);
+  border: 2px solid rgba(255, 221, 68, 0.3);
+  animation: gapPulse 1.8s ease-in-out infinite;
+}
+@keyframes gapPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 4px rgba(255, 221, 68, 0.4); }
+  50% { transform: scale(1.4); box-shadow: 0 0 12px rgba(255, 221, 68, 0.7); }
+}
+
+/* Platform diamond marker */
+.platform-marker {
+  width: 10px;
+  height: 10px;
+  background: #ff5577;
+  border: 2px solid rgba(255, 85, 119, 0.3);
+  transform: rotate(45deg);
+}
+
+/* Legend */
+.legend {
+  background: var(--color-surface) !important;
+  padding: 14px 16px !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  font-size: 13px;
+  font-family: 'IBM Plex Mono', monospace;
+  border-radius: 0 !important;
+}
+.legend h4 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.legend i {
+  width: 14px;
+  height: 14px;
+  float: left;
+  margin-right: 8px;
+  opacity: 0.9;
+}
