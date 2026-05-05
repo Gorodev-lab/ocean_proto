@@ -218,6 +218,13 @@ def update_pipeline_task(build_kg: bool = False):
         )
         logger.info("Pipeline GFW-Only completado (IPA).")
 
+        # Invalidar caché de megafauna para que los endpoints sirvan datos frescos
+        try:
+            from src.api.megafauna_routes import invalidate_megafauna_cache
+            invalidate_megafauna_cache()
+        except Exception as _exc:
+            logger.warning(f"[Refresh] No se pudo invalidar caché de megafauna: {_exc}")
+
         if build_kg:
             from src.pipeline.knowledge_graph import build_and_export
             logger.info("Construyendo Knowledge Graph...")

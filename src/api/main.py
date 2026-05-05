@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .routes import router
+from .megafauna_routes import router as megafauna_router
 import os
 from dotenv import load_dotenv
 load_dotenv()  # Carga GFW_API_TOKEN y GEMINI_API_KEY desde .env
@@ -13,6 +14,7 @@ app = FastAPI(
 )
 
 app.include_router(router)
+app.include_router(megafauna_router)
 
 # Mount static files to serve frontend
 os.makedirs("src/static", exist_ok=True)
