@@ -4,13 +4,13 @@ import { useEffect, useRef, useCallback } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
-  api,
+  db,
   getRiskColor,
   getRiskClass,
   VESSEL_COLORS,
   SPECIES_COLORS,
   type GeoJSONFeatureCollection,
-} from "@/lib/api";
+} from "@/lib/supabase";
 import type { LayerVisibility, LayerCounts, InfoRow } from "@/types/ocean";
 
 // Fix Leaflet default icon paths in Next.js
@@ -92,7 +92,7 @@ export default function OceanMap({
     const map = mapRef.current;
     if (!map) return;
     try {
-      const data: GeoJSONFeatureCollection = await api.hotspots();
+      const data: GeoJSONFeatureCollection = await db.hotspots();
       if (hotspotsRef.current) map.removeLayer(hotspotsRef.current);
 
       const features = data.features ?? [];
@@ -149,7 +149,7 @@ export default function OceanMap({
     const map = mapRef.current;
     if (!map) return;
     try {
-      const data = await api.vessels();
+      const data = await db.vessels();
       if (vesselsRef.current) map.removeLayer(vesselsRef.current);
       const features = data.features ?? [];
       onCounts({ vessels: features.length });
@@ -197,7 +197,7 @@ export default function OceanMap({
     const map = mapRef.current;
     if (!map) return;
     try {
-      const data = await api.megafauna();
+      const data = await db.megafauna();
       if (megafaunaRef.current) map.removeLayer(megafaunaRef.current);
       const features = data.features ?? [];
       onCounts({ megafauna: features.length });
@@ -246,7 +246,7 @@ export default function OceanMap({
     const map = mapRef.current;
     if (!map) return;
     try {
-      const data = await api.platforms();
+      const data = await db.platforms();
       if (platformsRef.current) map.removeLayer(platformsRef.current);
       const features = data.features ?? [];
       onCounts({ platforms: features.length });
@@ -289,7 +289,7 @@ export default function OceanMap({
     const map = mapRef.current;
     if (!map) return;
     try {
-      const data = await api.osvs();
+      const data = await db.osvs();
       if (osvsRef.current) map.removeLayer(osvsRef.current);
       const features = data.features ?? [];
       onCounts({ osvs: features.length });
@@ -337,7 +337,7 @@ export default function OceanMap({
     const map = mapRef.current;
     if (!map) return;
     try {
-      const data = await api.gaps();
+      const data = await db.gaps();
       if (gapsRef.current) map.removeLayer(gapsRef.current);
       const features = data.features ?? [];
       onCounts({ gaps: features.length });

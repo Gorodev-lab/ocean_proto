@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api, type KGStats } from "@/lib/api";
+// KG stats still fetched from FastAPI (it's a compute endpoint, not a DB read)
 import styles from "./KGPanel.module.css";
 
 const KG_TYPE_META: Record<string, { label: string; cls: string }> = {
