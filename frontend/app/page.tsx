@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useOceanState } from "@/hooks/useOceanState";
 import { api } from "@/lib/api";
 import Header from "@/components/Header";
@@ -37,7 +37,12 @@ export default function HomePage() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [kgRefreshTrigger, setKgRefreshTrigger] = useState(0);
 
-  const layerPanelRef = useRef<HTMLDivElement>(null);
+  const [layerPanelHeight, setLayerPanelHeight] = useState(0);
+  const layerPanelRef = useCallback((node: HTMLDivElement | null) => {
+    if (node !== null) {
+      setLayerPanelHeight(node.getBoundingClientRect().height);
+    }
+  }, []);
 
   const handleCounts = useCallback(
     (partial: Partial<LayerCounts>) => {
@@ -81,7 +86,6 @@ export default function HomePage() {
 
   // Compute KG panel top position after layer panel
   // We use CSS custom property via inline style trick
-  const layerPanelHeight = layerPanelRef.current?.getBoundingClientRect().height ?? 0;
   const kgPanelTop = layerPanelHeight > 0 ? layerPanelHeight + 14 + 10 : 280;
 
   return (

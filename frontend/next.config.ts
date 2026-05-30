@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: "/api/:path*",
+        // Redirige todas las rutas de /api/* al backend legacy, excepto los nuevos route handlers locales
+        source: "/api/:path((?!intelligence|fishing-effort|bay-health|conditions|tides).*)",
         destination: `${API_URL}/api/:path*`,
       },
     ];

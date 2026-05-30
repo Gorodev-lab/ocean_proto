@@ -24,7 +24,7 @@ HEADERS = {
     "Prefer": "resolution=merge-duplicates",  # upsert
 }
 
-BASE_API = "http://localhost:8002"   # FastAPI local
+BASE_API = "http://localhost:8080"   # FastAPI local
 
 def fetch_geojson(endpoint: str) -> list[dict]:
     """Fetch GeoJSON from local FastAPI and convert to flat row dicts."""
@@ -68,20 +68,20 @@ for f in features:
     rows.append({
         "h3_index": props.get("h3_index"),
         "geom": f"SRID=4326;POLYGON(({wkt_coords}))",
-        "vessel_count":             props.get("vessel_count", 0),
+        "vessel_count":             int(props.get("vessel_count", 0)),
         "score_traffic_density":    props.get("score_traffic_density", 0),
         "score_acoustic":           props.get("score_acoustic", 0),
         "estimated_spl_db":         props.get("estimated_spl_db", 0),
-        "megafauna_count":          props.get("megafauna_count", 0),
+        "megafauna_count":          int(props.get("megafauna_count", 0)),
         "score_cooccurrence":       props.get("score_cooccurrence", 0),
         "score_fishing_effort":     props.get("score_fishing_effort", 0),
         "fishing_hours":            props.get("fishing_hours", 0),
-        "gap_count":                props.get("gap_count", 0),
-        "encounter_count":          props.get("encounter_count", 0),
-        "loitering_count":          props.get("loitering_count", 0),
+        "gap_count":                int(props.get("gap_count", 0)),
+        "encounter_count":          int(props.get("encounter_count", 0)),
+        "loitering_count":          int(props.get("loitering_count", 0)),
         "score_behavior_anomaly":   props.get("score_behavior_anomaly", 0),
-        "platform_count":           props.get("platform_count", 0),
-        "support_count":            props.get("support_count", 0),
+        "platform_count":           int(props.get("platform_count", 0)),
+        "support_count":            int(props.get("support_count", 0)),
         "score_og_pressure":        props.get("score_og_pressure", 0),
         "score_corridor_intensity": props.get("score_corridor_intensity", 0),
         "score_identity_risk":      props.get("score_identity_risk", 0),

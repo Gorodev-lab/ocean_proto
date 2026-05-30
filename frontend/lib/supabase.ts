@@ -28,13 +28,13 @@ function toFC(features: GeoJSONFeatureCollection["features"]): GeoJSONFeatureCol
 
 // ── Helpers to convert Supabase rows → GeoJSON features ─────
 
-function parsePoint(geom: string | null): [number, number] | null {
-  if (!geom) return null;
-  // PostgREST returns geometry as WKT: "0101000020E6100000..."
-  // or as GeoJSON if we use ?select=geom::text
-  // We'll use lon/lat columns as fallback
-  return null;
-}
+// function parsePoint(geom: string | null): [number, number] | null {
+//   if (!geom) return null;
+//   // PostgREST returns geometry as WKT: "0101000020E6100000..."
+//   // or as GeoJSON if we use ?select=geom::text
+//   // We'll use lon/lat columns as fallback
+//   return null;
+// }
 
 // ── API — queries Supabase PostgREST ────────────────────────
 

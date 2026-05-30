@@ -52,7 +52,7 @@ GFW_SAR_DIR = "d1f2dc60-3841-11f1-bbe6-bfd704486e22"
 
 # Período de análisis
 DATA_START = "2023-01-01"
-DATA_END   = "2024-12-31"
+DATA_END   = "2023-12-31"
 BBOX       = (MIN_LON, MIN_LAT, MAX_LON, MAX_LAT)
 
 

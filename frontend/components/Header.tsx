@@ -19,7 +19,7 @@ export default function Header({
     <header className={styles.header}>
       <div className={styles.brand}>
         <h1 className={styles.title}>
-          ZOHAR <span className={styles.accent}>//</span> OCEAN PROTO
+          ZOHAR <span className={styles.accent}>{"//"}</span> OCEAN PROTO
         </h1>
         <small className={styles.subtitle}>
           Oil &amp; Gas Impact on Cetacean Habitats — Baja California Sur / Gulf of California

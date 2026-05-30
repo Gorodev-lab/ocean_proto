@@ -1,0 +1,12 @@
+.git
+.github
+.pytest_cache
+venv
+frontend
+*.zip
+*.pdf
+*.md
+tests
+docker-compose.yml
+Dockerfile
+.env
