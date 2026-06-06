@@ -108,10 +108,13 @@ export function getRiskClass(score: number): string {
 }
 
 export const VESSEL_COLORS: Record<string, string> = {
-  passenger: "#ff44aa",
-  tanker: "#ff8844",
-  cargo: "#ffcc44",
-  fishing: "#44ff88",
+  passenger:      "#a855f7",   // Cruceros / Yates — violeta
+  cargo:          "#f59e0b",   // Carga general — ámbar
+  fishing:        "#22c55e",   // Pesca industrial — verde
+  seismic_vessel: "#ef4444",   // Buque sísmico — rojo
+  noisy_vessel:   "#f97316",   // Buque ruidoso — naranja
+  other:          "#94a3b8",   // Otro — gris
+  unmatched:      "#475569",   // Sin clasificar — gris oscuro
 };
 
 export const SPECIES_COLORS: Record<string, string> = {

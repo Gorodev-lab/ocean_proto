@@ -170,7 +170,7 @@ export default function OceanMap({
           const p = feature.properties;
           const [lon, lat] = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
           layer.on("click", () =>
-            onFeatureClick("Embarcación SAR (GFW)", [
+            onFeatureClick("Embarcación AIS", [
               { key: "MMSI",      val: String(p.mmsi ?? "—") },
               { key: "Tipo",      val: String(p.vessel_type ?? "unknown").toUpperCase(), cls: "vessel" },
               { key: "Timestamp", val: String(p.timestamp ?? "—") },
@@ -266,9 +266,9 @@ export default function OceanMap({
           const p = feature.properties;
           const [lon, lat] = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
           layer.on("click", () =>
-            onFeatureClick("Plataforma O&G", [
+            onFeatureClick("Crucero / Megabarco", [
               { key: "ID",       val: String(p.platform_id ?? "—"), cls: "platform" },
-              { key: "Categoría",val: String(p.category ?? "OIL"), cls: "platform" },
+              { key: "Clase",    val: String(p.category ?? "PASSENGER"), cls: "platform" },
               { key: "Tipo",     val: String(p.label ?? "—") },
               { key: "Sub-cat",  val: String(p.sub_category ?? "—") },
               { key: "Fuente",   val: String(p.source ?? "—") },
@@ -308,11 +308,11 @@ export default function OceanMap({
           const p = feature.properties;
           const [lon, lat] = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
           layer.on("click", () =>
-            onFeatureClick("Buque de Apoyo O&G (OSV)", [
+            onFeatureClick("Pesquero Industrial", [
               { key: "Nombre", val: String(p.shipname ?? "—"), cls: "osv" },
               { key: "MMSI",   val: String(p.mmsi ?? "—") },
               { key: "Bandera",val: String(p.flag ?? "—") },
-              { key: "Tipo",   val: String(p.vessel_type ?? "support"), cls: "osv" },
+              { key: "Tipo",   val: String(p.vessel_type ?? "fishing"), cls: "osv" },
               { key: "Fuente", val: String(p.source ?? "—") },
               { key: "Lat",    val: lat.toFixed(4) },
               { key: "Lon",    val: lon.toFixed(4) },
@@ -358,7 +358,7 @@ export default function OceanMap({
           const [lon, lat] = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
           const hours = Number(p.gap_hours ?? 0);
           layer.on("click", () =>
-            onFeatureClick("AIS Gap Event (Apagón)", [
+            onFeatureClick("Apagón AIS", [
               { key: "Nombre",   val: String(p.shipname ?? "—"), cls: "gap" },
               { key: "MMSI",     val: String(p.mmsi ?? "—") },
               { key: "Bandera",  val: String(p.flag ?? "—") },

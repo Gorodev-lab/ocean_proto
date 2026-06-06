@@ -31,12 +31,12 @@ export default function StatsBar({
   kgEdges,
 }: StatsBarProps) {
   const stats: Stat[] = [
-    { id: "vessels",   value: vessels   || "—", label: "Buques SAR",   color: "#ff8844" },
+    { id: "vessels",   value: vessels   || "—", label: "Emb. AIS",     color: "#3b82f6" },
     { id: "megafauna", value: megafauna || "—", label: "Avistamientos", color: "#44bbff" },
-    { id: "hotspots",  value: hotspots  || "—", label: "Zonas Riesgo",  color: "#ff4444" },
-    { id: "maxRisk",   value: maxRisk   || "—", label: "Max Risk",      color: "#FEB24C" },
-    { id: "platforms", value: platforms || "—", label: "Plataformas",   color: "#ff5577" },
-    { id: "gaps",      value: gaps      || "—", label: "AIS Gaps",      color: "#ffdd44" },
+    { id: "hotspots",  value: hotspots  || "—", label: "Zonas Riesgo",  color: "#FD8D3C" },
+    { id: "maxRisk",   value: maxRisk   || "—", label: "Max Risk",      color: "#ef4444" },
+    { id: "platforms", value: platforms || "—", label: "Cruceros",      color: "#a855f7" },
+    { id: "gaps",      value: gaps      || "—", label: "Apagones AIS",  color: "#facc15" },
     { id: "kgNodes",   value: kgNodes   || "—", label: "KG Nodos",      color: "var(--color-text-primary)" },
     { id: "kgEdges",   value: kgEdges   || "—", label: "KG Aristas",    color: "var(--color-text-secondary)" },
   ];

@@ -12,12 +12,12 @@ interface LayerDef {
 }
 
 const LAYERS: LayerDef[] = [
-  { key: "hotspots",  label: "Zonas de Riesgo",   color: "#FD8D3C", countKey: "hotspots"  },
-  { key: "vessels",   label: "Embarcaciones SAR",  color: "#ff8844", countKey: "vessels"   },
-  { key: "megafauna", label: "Megafauna",           color: "#44bbff", countKey: "megafauna" },
-  { key: "platforms", label: "Plataformas O&G",     color: "#ff5577", countKey: "platforms", section: "Oil & Gas" },
-  { key: "osvs",      label: "Buques OSV",          color: "#ff66cc", countKey: "osvs"      },
-  { key: "gaps",      label: "AIS Gaps",            color: "#ffdd44", countKey: "gaps"      },
+  { key: "hotspots",  label: "Zonas de Riesgo",      color: "#FD8D3C", countKey: "hotspots"  },
+  { key: "vessels",   label: "Embarcaciones AIS",     color: "#3b82f6", countKey: "vessels",   section: "TRÁFICO MARINO" },
+  { key: "megafauna", label: "Megafauna",             color: "#44bbff", countKey: "megafauna" },
+  { key: "platforms", label: "Cruceros & Megabarcos", color: "#a855f7", countKey: "platforms", section: "TIPOS DE FLOTA" },
+  { key: "osvs",      label: "Pesca Industrial",      color: "#22c55e", countKey: "osvs"      },
+  { key: "gaps",      label: "Apagones AIS",          color: "#facc15", countKey: "gaps"      },
 ];
 
 interface LayerPanelProps {

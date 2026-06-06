@@ -9,6 +9,7 @@ import LayerPanel from "@/components/LayerPanel";
 import StatsBar from "@/components/StatsBar";
 import InfoPanel from "@/components/InfoPanel";
 import KGPanel from "@/components/KGPanel";
+import IntelPanel from "@/components/IntelPanel";
 import type { LayerCounts } from "@/types/ocean";
 import styles from "./page.module.css";
 
@@ -84,9 +85,19 @@ export default function HomePage() {
     }
   }, [setIsBuildingKG]);
 
-  // Compute KG panel top position after layer panel
-  // We use CSS custom property via inline style trick
-  const kgPanelTop = layerPanelHeight > 0 ? layerPanelHeight + 14 + 10 : 280;
+  // Intel panel height tracking (to position KG panel below it)
+  const [intelPanelHeight, setIntelPanelHeight] = useState(0);
+  const intelPanelRef = useCallback((node: HTMLDivElement | null) => {
+    if (node !== null) {
+      const ro = new ResizeObserver(() => {
+        setIntelPanelHeight(node.getBoundingClientRect().height);
+      });
+      ro.observe(node);
+    }
+  }, []);
+
+  // Compute KG panel top position after intel panel
+  const kgPanelTop = intelPanelHeight > 0 ? intelPanelHeight + 14 + 8 : 460;
 
   return (
     <div className={styles.shell}>
@@ -116,6 +127,15 @@ export default function HomePage() {
           />
         </div>
 
+        {/* Intel Panel — Traffic Intelligence */}
+        <div
+          ref={intelPanelRef}
+          style={{ position: "absolute", top: 14, right: 14, zIndex: 1002 }}
+        >
+          <IntelPanel />
+        </div>
+
+        {/* KG Panel — below Intel Panel */}
         <div style={{ position: "absolute", top: kgPanelTop, right: 14, zIndex: 1001 }}>
           <KGPanel
             onStats={(nodes, edges) => {
