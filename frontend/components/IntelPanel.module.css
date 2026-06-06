@@ -1,20 +1,13 @@
 /* ─── IntelPanel.module.css ─── */
 
 .panel {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 320px;
-  z-index: 1002;
-  background: rgba(10, 12, 16, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  width: 100%;
   font-family: "IBM Plex Mono", monospace;
   color: #e2e8f0;
   overflow: hidden;
   transition: max-height 0.3s ease;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
 }
 
 .collapsed {
@@ -68,7 +61,7 @@
   color: #94a3b8;
   width: 22px;
   height: 22px;
-  border-radius: 4px;
+  border-radius: 0px;
   cursor: pointer;
   font-size: 10px;
   display: flex;
@@ -94,7 +87,7 @@
 .tab {
   background: none;
   border: none;
-  border-radius: 5px 5px 0 0;
+  border-radius: 0px;
   color: #64748b;
   font-family: "IBM Plex Mono", monospace;
   font-size: 9px;
@@ -132,7 +125,7 @@
 
 .body::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
+  border-radius: 0px;
 }
 
 .loading {
@@ -148,7 +141,7 @@
   gap: 0;
   margin-bottom: 14px;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 6px;
+  border-radius: 0px;
   overflow: hidden;
 }
 
@@ -222,13 +215,13 @@
   flex: 1;
   height: 4px;
   background: rgba(255, 255, 255, 0.06);
-  border-radius: 2px;
+  border-radius: 0px;
   overflow: hidden;
 }
 
 .barFill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 0px;
   transition: width 0.5s ease;
   opacity: 0.85;
 }
@@ -253,7 +246,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 5px;
+  border-radius: 0px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.04);
 }
@@ -286,7 +279,7 @@
 .vesselBadge {
   font-size: 8px;
   border: 1px solid;
-  border-radius: 3px;
+  border-radius: 0px;
   padding: 1px 5px;
   flex-shrink: 0;
   opacity: 0.8;
@@ -301,7 +294,7 @@
 
 .speciesCard {
   padding: 10px;
-  border-radius: 6px;
+  border-radius: 0px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -371,13 +364,13 @@
   flex: 1;
   height: 3px;
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 2px;
+  border-radius: 0px;
   overflow: hidden;
 }
 
 .yearFill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 0px;
   transition: width 0.5s ease;
   opacity: 0.7;
 }

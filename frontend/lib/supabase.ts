@@ -157,8 +157,53 @@ export const db = {
     return toFC(features);
   },
 
-  /** KG stats — fallback desde FastAPI local mientras no haya tabla KG en Supabase */
+  /** KG stats — fetched directly from Supabase knowledge_graph table */
   async kgStats() {
-    return { status: "not_built" as const, nodes: 0, edges: 0, node_types: {} };
+    const { data, error } = await supabase
+      .from("knowledge_graph")
+      .select("data")
+      .eq("graph_name", "OceanProto Knowledge Graph")
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[Supabase] kgStats:", error.message);
+      return { status: "not_built" as const, nodes: 0, edges: 0, node_types: {} };
+    }
+    if (!data || !data.data) {
+      return { status: "not_built" as const, nodes: 0, edges: 0, node_types: {} };
+    }
+
+    const graphData = data.data as any;
+    const nodes = graphData.nodes ?? [];
+    const links = graphData.links ?? [];
+    const node_types: Record<string, number> = {};
+    nodes.forEach((n: any) => {
+      const t = n.type || "Unknown";
+      node_types[t] = (node_types[t] || 0) + 1;
+    });
+
+    return {
+      status: "ready" as const,
+      nodes: nodes.length,
+      edges: links.length,
+      node_types,
+      graph_name: graphData.graph?.name ?? "OceanProto Knowledge Graph",
+      created: graphData.graph?.created ?? "",
+    };
+  },
+
+  /** Knowledge Graph: returns the full graph JSON from Supabase */
+  async knowledgeGraph(): Promise<any> {
+    const { data, error } = await supabase
+      .from("knowledge_graph")
+      .select("data")
+      .eq("graph_name", "OceanProto Knowledge Graph")
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[Supabase] knowledgeGraph:", error.message);
+      return { nodes: [], links: [] };
+    }
+    return data?.data ?? { nodes: [], links: [] };
   },
 };

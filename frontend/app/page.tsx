@@ -13,8 +13,9 @@ import IntelPanel from "@/components/IntelPanel";
 import type { LayerCounts } from "@/types/ocean";
 import styles from "./page.module.css";
 
-// Dynamic import to prevent SSR of Leaflet
+// Dynamic imports to prevent SSR errors
 const OceanMap = dynamic(() => import("@/components/OceanMap"), { ssr: false });
+const GraphVisualizer = dynamic(() => import("@/components/GraphVisualizer"), { ssr: false });
 
 export default function HomePage() {
   const {
@@ -38,12 +39,12 @@ export default function HomePage() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [kgRefreshTrigger, setKgRefreshTrigger] = useState(0);
 
-  const [layerPanelHeight, setLayerPanelHeight] = useState(0);
-  const layerPanelRef = useCallback((node: HTMLDivElement | null) => {
-    if (node !== null) {
-      setLayerPanelHeight(node.getBoundingClientRect().height);
-    }
-  }, []);
+  // Layout states
+  const [viewMode, setViewMode] = useState<"map" | "graph">("map");
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
 
   const handleCounts = useCallback(
     (partial: Partial<LayerCounts>) => {
@@ -56,7 +57,7 @@ export default function HomePage() {
     setIsRefreshing(true);
     try {
       await api.refresh(false);
-      // Espera 8s para que el pipeline procese
+      // Wait 8s for pipeline processing
       setTimeout(() => {
         setRefreshTrigger((n) => n + 1);
         setIsRefreshing(false);
@@ -70,7 +71,7 @@ export default function HomePage() {
     setIsBuildingKG(true);
     try {
       await api.refresh(true);
-      // Poll KGPanel cada 5s hasta que esté listo (máx ~60s)
+      // Poll KGPanel every 5s until ready (max ~60s)
       let attempts = 0;
       const poll = setInterval(() => {
         attempts++;
@@ -85,19 +86,10 @@ export default function HomePage() {
     }
   }, [setIsBuildingKG]);
 
-  // Intel panel height tracking (to position KG panel below it)
-  const [intelPanelHeight, setIntelPanelHeight] = useState(0);
-  const intelPanelRef = useCallback((node: HTMLDivElement | null) => {
-    if (node !== null) {
-      const ro = new ResizeObserver(() => {
-        setIntelPanelHeight(node.getBoundingClientRect().height);
-      });
-      ro.observe(node);
-    }
+  // Handler for node selection from graph to inspect/sync
+  const handleSelectNode = useCallback((nodeId: string | null) => {
+    setFocusedNodeId(nodeId);
   }, []);
-
-  // Compute KG panel top position after intel panel
-  const kgPanelTop = intelPanelHeight > 0 ? intelPanelHeight + 14 + 8 : 460;
 
   return (
     <div className={styles.shell}>
@@ -108,57 +100,145 @@ export default function HomePage() {
         onBuildKG={handleBuildKG}
       />
 
-      <div className={styles.mapWrapper}>
-        {/* The map fills the wrapper 100% */}
-        <OceanMap
-          visibility={layerVisibility}
-          onCounts={handleCounts}
-          onMaxRisk={setStatMaxRisk}
-          onFeatureClick={showInfo}
-          refreshTrigger={refreshTrigger}
-        />
-
-        {/* Floating panels — positioned over the map */}
-        <div ref={layerPanelRef}>
-          <LayerPanel
-            visibility={layerVisibility}
-            counts={layerCounts}
-            onToggle={toggleLayer}
-          />
-        </div>
-
-        {/* Intel Panel — Traffic Intelligence */}
-        <div
-          ref={intelPanelRef}
-          style={{ position: "absolute", top: 14, right: 14, zIndex: 1002 }}
+      <div className={styles.dashboardBody}>
+        {/* SIDEBAR LEFT (Control & Layers) */}
+        <aside
+          className={`${styles.sidebarLeft} ${
+            !leftSidebarOpen ? styles.sidebarLeftCollapsed : ""
+          }`}
         >
-          <IntelPanel />
-        </div>
+          <div className={styles.sidebarHeader}>
+            <h4 className={styles.sidebarTitle}>
+              <span className={styles.sidebarTitlePrefix}>&gt;</span> CONTROL
+            </h4>
+          </div>
 
-        {/* KG Panel — below Intel Panel */}
-        <div style={{ position: "absolute", top: kgPanelTop, right: 14, zIndex: 1001 }}>
-          <KGPanel
-            onStats={(nodes, edges) => {
-              setKgNodes(nodes);
-              setKgEdges(edges);
-            }}
-            refreshTrigger={kgRefreshTrigger}
+          <div className={styles.viewToggleGroup}>
+            <button
+              className={`${styles.viewToggleBtn} ${
+                viewMode === "map" ? styles.viewToggleBtnActive : ""
+              }`}
+              onClick={() => setViewMode("map")}
+            >
+              Mapa
+            </button>
+            <button
+              className={`${styles.viewToggleBtn} ${
+                viewMode === "graph" ? styles.viewToggleBtnActive : ""
+              }`}
+              onClick={() => setViewMode("graph")}
+            >
+              Grafo
+            </button>
+          </div>
+
+          <div className={styles.sidebarContent}>
+            {viewMode === "map" ? (
+              <LayerPanel
+                visibility={layerVisibility}
+                counts={layerCounts}
+                onToggle={toggleLayer}
+              />
+            ) : (
+              <div style={{ padding: "18px", color: "var(--color-text-muted)", fontSize: "12px", fontFamily: "IBM Plex Mono" }}>
+                <div style={{ marginBottom: "14px", borderBottom: "1px solid var(--color-border)", paddingBottom: "8px", fontWeight: 600, color: "var(--color-text-primary)" }}>EXPLORADOR DE RED</div>
+                Usa el buscador del grafo para localizar barcos, especies o zonas de riesgo y analizar sus dependencias directas en la vista física.
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* SIDEBAR LEFT COLLAPSE TOGGLE */}
+        <button
+          className={`${styles.toggleBtn} ${styles.toggleBtnLeft}`}
+          onClick={() => setLeftSidebarOpen((o) => !o)}
+          title={leftSidebarOpen ? "Colapsar Panel Izquierdo" : "Expandir Panel Izquierdo"}
+          aria-label={leftSidebarOpen ? "Colapsar Izquierda" : "Expandir Izquierda"}
+          style={{ left: leftSidebarOpen ? "294px" : "14px" }}
+        >
+          {leftSidebarOpen ? "◀" : "▶"}
+        </button>
+
+        {/* MAIN WORKSPACE (Map or Graph) */}
+        <main className={styles.mainContent}>
+          <div className={styles.mapOrGraphContainer}>
+            {/* Map wrapper - display hidden when graph is active to preserve leaflet map instance state */}
+            <div style={{ display: viewMode === "map" ? "block" : "none", height: "100%", width: "100%" }}>
+              <OceanMap
+                visibility={layerVisibility}
+                onCounts={handleCounts}
+                onMaxRisk={setStatMaxRisk}
+                onFeatureClick={showInfo}
+                refreshTrigger={refreshTrigger}
+                center={mapCenter}
+              />
+            </div>
+
+            {/* Graph Visualizer wrapper */}
+            {viewMode === "graph" && (
+              <GraphVisualizer
+                focusedNodeId={focusedNodeId}
+                onSelectNode={handleSelectNode}
+                onLocateOnMap={(lat, lon) => {
+                  setMapCenter([lat, lon]);
+                  setViewMode("map");
+                }}
+              />
+            )}
+          </div>
+
+          <StatsBar
+            vessels={layerCounts.vessels}
+            megafauna={layerCounts.megafauna}
+            hotspots={layerCounts.hotspots}
+            maxRisk={statMaxRisk}
+            platforms={layerCounts.platforms}
+            gaps={layerCounts.gaps}
+            kgNodes={kgNodes}
+            kgEdges={kgEdges}
           />
-        </div>
+        </main>
 
-        <StatsBar
-          vessels={layerCounts.vessels}
-          megafauna={layerCounts.megafauna}
-          hotspots={layerCounts.hotspots}
-          maxRisk={statMaxRisk}
-          platforms={layerCounts.platforms}
-          gaps={layerCounts.gaps}
-          kgNodes={kgNodes}
-          kgEdges={kgEdges}
-        />
+        {/* SIDEBAR RIGHT COLLAPSE TOGGLE */}
+        <button
+          className={`${styles.toggleBtn} ${styles.toggleBtnRight}`}
+          onClick={() => setRightSidebarOpen((o) => !o)}
+          title={rightSidebarOpen ? "Colapsar Panel Derecho" : "Expandir Panel Derecho"}
+          aria-label={rightSidebarOpen ? "Colapsar Derecha" : "Expandir Derecha"}
+          style={{ right: rightSidebarOpen ? "374px" : "14px" }}
+        >
+          {rightSidebarOpen ? "▶" : "◀"}
+        </button>
+
+        {/* SIDEBAR RIGHT (Analysis: Traffic Intel & KG Stats) */}
+        <aside
+          className={`${styles.sidebarRight} ${
+            !rightSidebarOpen ? styles.sidebarRightCollapsed : ""
+          }`}
+        >
+          <div className={styles.sidebarHeader}>
+            <h4 className={styles.sidebarTitle}>
+              <span className={styles.sidebarTitlePrefix}>&gt;</span> ANÁLISIS
+            </h4>
+          </div>
+
+          <div className={styles.sidebarContent}>
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "14px", padding: "14px 0" }}>
+              <IntelPanel />
+              <KGPanel
+                onStats={(nodes, edges) => {
+                  setKgNodes(nodes);
+                  setKgEdges(edges);
+                }}
+                refreshTrigger={kgRefreshTrigger}
+              />
+            </div>
+          </div>
+        </aside>
 
         <InfoPanel state={infoPanel} onClose={closeInfo} />
       </div>
     </div>
   );
 }
+

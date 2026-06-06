@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { api, type KGStats } from "@/lib/api";
-// KG stats still fetched from FastAPI (it's a compute endpoint, not a DB read)
+import { type KGStats } from "@/lib/api";
+import { db } from "@/lib/supabase";
 import styles from "./KGPanel.module.css";
 
 const KG_TYPE_META: Record<string, { label: string; cls: string }> = {
@@ -32,8 +32,8 @@ export default function KGPanel({ onStats, refreshTrigger }: KGPanelProps) {
 
   const fetchStats = async () => {
     try {
-      const data = await api.kgStats();
-      setStats(data);
+      const data = await db.kgStats();
+      setStats(data as any);
       onStats?.(data.nodes, data.edges);
     } catch {
       setStats(null);

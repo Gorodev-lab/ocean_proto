@@ -3,10 +3,162 @@
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  background-color: var(--color-background);
 }
 
-.mapWrapper {
-  position: relative;
+.dashboardBody {
+  display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
+
+/* Sidebars */
+.sidebarLeft {
+  width: 280px;
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1), margin-left 240ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.sidebarLeftCollapsed {
+  width: 0;
+  margin-left: -280px;
+  border-right: none;
+}
+
+.sidebarRight {
+  width: 360px;
+  background-color: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1), margin-right 240ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.sidebarRightCollapsed {
+  width: 0;
+  margin-right: -360px;
+  border-left: none;
+}
+
+.sidebarHeader {
+  padding: 14px 18px;
+  background-color: #0d0d0d;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebarTitle {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebarTitlePrefix {
+  color: var(--color-accent);
+}
+
+.sidebarContent {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Main workspace */
+.mainContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-background);
+}
+
+.mapOrGraphContainer {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+/* Sidebar Toggle Buttons (Minimalist Terminal Style) */
+.toggleBtn {
+  position: absolute;
+  top: 14px;
+  background-color: rgba(17, 17, 17, 0.85);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 10px;
+  cursor: pointer;
+  z-index: 1005;
+  transition: all 150ms ease;
+  backdrop-filter: blur(4px);
+}
+
+.toggleBtn:hover {
+  border-color: var(--color-accent);
+  color: #ffffff;
+  background-color: var(--color-surface);
+}
+
+.toggleBtnLeft {
+  left: 14px;
+}
+
+.toggleBtnRight {
+  right: 14px;
+}
+
+/* View Mode Toggles inside Sidebar */
+.viewToggleGroup {
+  display: flex;
+  padding: 14px 18px 0;
+  gap: 8px;
+}
+
+.viewToggleBtn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 8px 0;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  transition: all 150ms ease;
+}
+
+.viewToggleBtnActive {
+  border-color: var(--color-accent);
+  color: #ffffff;
+  background-color: rgba(192, 57, 43, 0.08);
+}
+
+.viewToggleBtn:hover:not(.viewToggleBtnActive) {
+  border-color: var(--color-text-muted);
+  color: var(--color-text-primary);
+}
+

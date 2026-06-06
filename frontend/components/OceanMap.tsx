@@ -28,6 +28,7 @@ interface OceanMapProps {
   onMaxRisk: (val: number) => void;
   onFeatureClick: (type: string, rows: InfoRow[]) => void;
   refreshTrigger: number;
+  center?: [number, number] | null;
 }
 
 type LayerRef = L.GeoJSON | null;
@@ -38,6 +39,7 @@ export default function OceanMap({
   onMaxRisk,
   onFeatureClick,
   refreshTrigger,
+  center,
 }: OceanMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -86,6 +88,30 @@ export default function OceanMap({
 
     mapRef.current = map;
   }, []);
+
+  // ── Auto-invalidate size on container resize ──────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    const container = mapContainerRef.current;
+    if (!map || !container) return;
+
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    observer.observe(container);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [mapRef.current]);
+
+  // ── Fly to center coordinates when requested ──────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && center) {
+      map.setView(center, 12, { animate: true });
+    }
+  }, [center]);
 
   // ── Load / reload all layers ────────────────────────────────────────────────
   const loadHotspots = useCallback(async () => {
