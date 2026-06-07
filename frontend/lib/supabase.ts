@@ -6,13 +6,23 @@
  *   NEXT_PUBLIC_SUPABASE_ANON_KEY
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // ── Client singleton ─────────────────────────────────────────
 const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL  ?? "";
 const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
-export const supabase = createClient(supabaseUrl, supabaseAnon);
+// Prevent runtime crash at import time if environment variables are not set.
+// A mock Proxy client is returned to allow the rest of the application to render.
+export const supabase: SupabaseClient = (supabaseUrl && supabaseAnon)
+  ? createClient(supabaseUrl, supabaseAnon)
+  : new Proxy({} as any, {
+      get(target, prop) {
+        console.warn(`[Supabase Client] Environment variables NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY are missing. Prop "${String(prop)}" accessed.`);
+        return () => Promise.resolve({ data: null, error: { message: "Supabase client not initialized (missing environment variables)." } });
+      }
+    }) as unknown as SupabaseClient;
+
 
 // ── Re-export GeoJSON types & helpers from api.ts ────────────
 export type { GeoJSONFeatureCollection, GeoJSONFeature } from "./api";

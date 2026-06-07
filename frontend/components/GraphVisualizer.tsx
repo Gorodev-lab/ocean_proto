@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import * as d3 from "d3";
 import styles from "./GraphVisualizer.module.css";
 import { VESSEL_COLORS, SPECIES_COLORS } from "@/lib/api";
+import { db } from "@/lib/supabase";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -165,18 +166,19 @@ export default function GraphVisualizer({
   // Detailed inspect node (single-click)
   const [inspectNode, setInspectNode] = useState<GraphNode | null>(null);
 
-  // Loading graph data from API
+  // Loading graph data from Supabase directly for serverless compatibility
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        const res = await fetch("/api/knowledge-graph");
-        if (res.ok) {
-          const json = await res.json();
+        const json = await db.knowledgeGraph();
+        if (json && (json.nodes || json.links)) {
           setData(json as GraphData);
+        } else {
+          console.warn("Received empty or invalid knowledge graph data from Supabase:", json);
         }
       } catch (err) {
-        console.error("Failed to load knowledge graph data:", err);
+        console.error("Failed to load knowledge graph data from Supabase:", err);
       } finally {
         setLoading(false);
       }

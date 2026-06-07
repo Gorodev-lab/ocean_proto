@@ -174,13 +174,20 @@ export default function IntelPanel({ onClose }: IntelPanelProps) {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const [v, b] = await Promise.all([
-        supabase.rpc("get_vessel_intel"),
-        supabase.rpc("get_bay_health"),
-      ]);
-      if (v.data) setVesselData(v.data as VesselIntel);
-      if (b.data) setBayData(b.data as BayHealth);
-      setLoading(false);
+      try {
+        const [v, b] = await Promise.all([
+          supabase.rpc("get_vessel_intel"),
+          supabase.rpc("get_bay_health"),
+        ]);
+        if (v.error) console.error("Error fetching get_vessel_intel:", v.error.message);
+        if (b.error) console.error("Error fetching get_bay_health:", b.error.message);
+        if (v.data) setVesselData(v.data as VesselIntel);
+        if (b.data) setBayData(b.data as BayHealth);
+      } catch (err) {
+        console.error("Failed to load vessel intelligence from Supabase:", err);
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, []);
