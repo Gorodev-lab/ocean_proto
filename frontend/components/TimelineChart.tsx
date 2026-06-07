@@ -45,7 +45,7 @@ interface VedaItem {
   especie: string;
   periodo: string | null;
   norma: string | null;
-  icon: string;
+  code: string;
 }
 
 interface VedasResponse {
@@ -337,42 +337,42 @@ export default function TimelineChart() {
       <div
         style={{
           display: "flex",
-          gap: 16,
+          gap: 14,
           marginTop: 8,
           flexWrap: "wrap",
           fontSize: 9,
-          color: "#555",
+          color: "#444",
         }}
       >
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 20, height: 2, background: "#4a9eff", display: "inline-block" }} />
-          Embarcaciones AIS/VMS
+          <span style={{ width: 16, height: 1, background: "#4a9eff", display: "inline-block" }} />
+          v(t) AIS/VMS
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 20, height: 2, background: "#00ff8c", display: "inline-block" }} />
-          Megafauna OBIS
+          <span style={{ width: 16, height: 1, background: "#00ff8c", display: "inline-block" }} />
+          f(t) OBIS
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 12, height: 12, background: "rgba(255,180,0,0.3)", display: "inline-block" }} />
-          Veda camarón
+          <span style={{ width: 10, height: 10, background: "rgba(255,180,0,0.25)", display: "inline-block" }} />
+          V_PEN
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 12, height: 12, background: "rgba(255,80,80,0.3)", display: "inline-block" }} />
-          Veda tiburón
+          <span style={{ width: 10, height: 10, background: "rgba(255,80,80,0.25)", display: "inline-block" }} />
+          V_SEL
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 20, height: 4, background: "#00d4ff", display: "inline-block" }} />
-          Época ballenas
+          <span style={{ width: 16, height: 2, background: "#00d4ff", display: "inline-block" }} />
+          Mn.season
         </span>
       </div>
 
       {/* Active vedas panel */}
       {vedas && vedas.active.length > 0 && (
         <div style={{ marginTop: 12 }}>
-          <div style={{ color: "#666", fontSize: 9, letterSpacing: 2, marginBottom: 6 }}>
-            &gt; VEDAS ACTIVAS ESTE MES
+          <div style={{ color: "#444", fontSize: 9, letterSpacing: 2, marginBottom: 6 }}>
+            // vedas.active(month={vedas.currentMonth})
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {vedas.active.map((v) => (
               <div
                 key={v.nombre}
@@ -380,17 +380,18 @@ export default function TimelineChart() {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  borderLeft: "2px solid #ff4444",
+                  borderLeft: "1px solid #ef4444",
                   paddingLeft: 8,
-                  paddingTop: 2,
-                  paddingBottom: 2,
+                  paddingTop: 3,
+                  paddingBottom: 3,
                 }}
               >
-                <span style={{ color: "#ccc", fontSize: 10 }}>
-                  {v.icon} {v.nombre}
+                <span style={{ color: "#888", fontSize: 10 }}>
+                  <span style={{ color: "#ef4444", fontWeight: 600, marginRight: 6 }}>{v.code}</span>
+                  {v.nombre}
                 </span>
-                <span style={{ color: "#666", fontSize: 9 }}>
-                  {v.periodo ?? "Permanente"} · {v.norma}
+                <span style={{ color: "#444", fontSize: 9 }}>
+                  {v.periodo ?? "∞"} · {v.norma}
                 </span>
               </div>
             ))}

@@ -23,12 +23,12 @@ const MONTH_NAMES = [
   "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
 ];
 
-const SPECIES_ICON: Record<string, string> = {
-  "atún":       "🐟",
-  "tiburón":    "🦈",
-  "camarón":    "🦐",
-  "totoaba":    "🐠",
-  "manta_raya": "🐡",
+const SPECIES_CODE: Record<string, string> = {
+  "atún":       "THN",    // Thunnus
+  "tiburón":    "SEL",    // Selachii
+  "camarón":    "PEN",    // Penaeidae
+  "totoaba":    "TOT",    // Totoaba macdonaldi
+  "manta_raya": "MOB",    // Mobulidae
 };
 
 export async function GET() {
@@ -74,7 +74,7 @@ export async function GET() {
         : null,
     norma: v.norma,
     notas: v.notas,
-    icon: SPECIES_ICON[v.especie_obj] ?? "🚫",
+    code: SPECIES_CODE[v.especie_obj] ?? "UNK",
   });
 
   return NextResponse.json({

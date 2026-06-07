@@ -58,13 +58,13 @@ const VESSEL_LABELS: Record<string, { label: string; color: string }> = {
   noisy_vessel:   { label: "Buque Ruidoso",     color: "#f97316" },
 };
 
-const SPECIES_LABELS: Record<string, { label: string; latin: string; color: string; emoji: string }> = {
-  "Megaptera novaeangliae": { label: "Ballena Jorobada",   latin: "Megaptera novaeangliae",   color: "#22d3ee", emoji: "🐋" },
-  "Balaenoptera musculus":  { label: "Ballena Azul",       latin: "Balaenoptera musculus",    color: "#818cf8", emoji: "🐳" },
-  "Tursiops truncatus":     { label: "Delfín Nariz Botella",latin: "Tursiops truncatus",      color: "#34d399", emoji: "🐬" },
-  "Balaenoptera physalus":  { label: "Ballena de Aleta",   latin: "Balaenoptera physalus",   color: "#60a5fa", emoji: "🐋" },
-  "Physeter macrocephalus": { label: "Cachalote",          latin: "Physeter macrocephalus",  color: "#a78bfa", emoji: "🐳" },
-  "Delphinus delphis":      { label: "Delfín Común",       latin: "Delphinus delphis",       color: "#4ade80", emoji: "🐬" },
+const SPECIES_LABELS: Record<string, { label: string; latin: string; color: string; sym: string }> = {
+  "Megaptera novaeangliae": { label: "Ballena Jorobada",    latin: "M. novaeangliae",   color: "#22d3ee", sym: "Mn" },
+  "Balaenoptera musculus":  { label: "Ballena Azul",        latin: "B. musculus",        color: "#818cf8", sym: "Bm" },
+  "Tursiops truncatus":     { label: "Delfín Nariz Botella",latin: "T. truncatus",       color: "#34d399", sym: "Tt" },
+  "Balaenoptera physalus":  { label: "Ballena de Aleta",    latin: "B. physalus",        color: "#60a5fa", sym: "Bp" },
+  "Physeter macrocephalus": { label: "Cachalote",           latin: "P. macrocephalus",   color: "#a78bfa", sym: "Pm" },
+  "Delphinus delphis":      { label: "Delfín Común",        latin: "D. delphis",         color: "#4ade80", sym: "Dd" },
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -119,7 +119,8 @@ function VesselRow({ v, rank }: { v: TopVessel; rank: number }) {
 function SpeciesCard({ sp, yearData }: { sp: SpeciesRecord; yearData: YearRecord[] }) {
   const meta = SPECIES_LABELS[sp.species];
   const label = meta?.label ?? sp.species;
-  const emoji = meta?.emoji ?? "🐟";
+  const sym = meta?.sym ?? "??";
+  const latin = meta?.latin ?? sp.species;
   const color = meta?.color ?? "#22d3ee";
 
   const years = yearData
@@ -130,10 +131,24 @@ function SpeciesCard({ sp, yearData }: { sp: SpeciesRecord; yearData: YearRecord
   return (
     <div className={styles.speciesCard}>
       <div className={styles.speciesHeader}>
-        <span className={styles.speciesEmoji}>{emoji}</span>
+        <span
+          className={styles.speciesEmoji}
+          style={{
+            color,
+            border: `1px solid ${color}`,
+            padding: "2px 4px",
+            fontSize: 10,
+            fontFamily: "IBM Plex Mono, monospace",
+            fontWeight: 600,
+            letterSpacing: 1,
+            lineHeight: 1,
+          }}
+        >
+          {sym}
+        </span>
         <div>
           <div className={styles.speciesName}>{label}</div>
-          <div className={styles.speciesLatin}>{sp.species}</div>
+          <div className={styles.speciesLatin}>{latin}</div>
         </div>
         <div className={styles.speciesTotal} style={{ color }}>{sp.count.toLocaleString()}</div>
       </div>
