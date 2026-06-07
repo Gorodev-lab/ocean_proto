@@ -7,6 +7,7 @@ interface HeaderProps {
   isBuildingKG: boolean;
   onRefresh: () => void;
   onBuildKG: () => void;
+  onGuideOpen?: () => void;
 }
 
 export default function Header({
@@ -14,6 +15,7 @@ export default function Header({
   isBuildingKG,
   onRefresh,
   onBuildKG,
+  onGuideOpen,
 }: HeaderProps) {
   return (
     <header className={styles.header}>
@@ -26,6 +28,17 @@ export default function Header({
         </small>
       </div>
       <div className={styles.actions}>
+        {onGuideOpen && (
+          <button
+            className={styles.btn}
+            onClick={onGuideOpen}
+            aria-label="Guía de uso"
+            title="Cómo usar Ocean Proto"
+            style={{ minWidth: 32 }}
+          >
+            ?
+          </button>
+        )}
         <button
           className={styles.btn}
           onClick={onBuildKG}

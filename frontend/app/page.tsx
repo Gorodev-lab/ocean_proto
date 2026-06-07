@@ -11,6 +11,7 @@ import InfoPanel from "@/components/InfoPanel";
 import KGPanel from "@/components/KGPanel";
 import IntelPanel from "@/components/IntelPanel";
 import TimelineChart from "@/components/TimelineChart";
+import WorkflowGuide from "@/components/WorkflowGuide";
 import type { LayerCounts } from "@/types/ocean";
 import styles from "./page.module.css";
 
@@ -48,6 +49,17 @@ export default function HomePage() {
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
+
+  // Workflow guide state — auto-open on first visit
+  const [guideOpen, setGuideOpen] = useState(false);
+
+  useEffect(() => {
+    const seen = localStorage.getItem("ocean_proto_guide_seen");
+    if (!seen) {
+      setGuideOpen(true);
+      localStorage.setItem("ocean_proto_guide_seen", "1");
+    }
+  }, []);
 
   // Detect mobile viewport and default sidebars closed on small screens
   useEffect(() => {
@@ -117,7 +129,10 @@ export default function HomePage() {
         isBuildingKG={isBuildingKG}
         onRefresh={handleRefresh}
         onBuildKG={handleBuildKG}
+        onGuideOpen={() => setGuideOpen(true)}
       />
+
+      <WorkflowGuide isOpen={guideOpen} onClose={() => setGuideOpen(false)} />
 
       <div className={styles.dashboardBody}>
         {/* SIDEBAR LEFT (Control & Layers) */}
