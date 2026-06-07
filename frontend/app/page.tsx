@@ -10,6 +10,7 @@ import StatsBar from "@/components/StatsBar";
 import InfoPanel from "@/components/InfoPanel";
 import KGPanel from "@/components/KGPanel";
 import IntelPanel from "@/components/IntelPanel";
+import TimelineChart from "@/components/TimelineChart";
 import type { LayerCounts } from "@/types/ocean";
 import styles from "./page.module.css";
 
@@ -247,6 +248,19 @@ export default function HomePage() {
           <div className={styles.sidebarContent}>
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "14px", padding: "14px 0" }}>
               <IntelPanel />
+
+              {/* Timeline: serie temporal histórica con vedas */}
+              <div
+                style={{
+                  margin: "0 14px",
+                  padding: "14px",
+                  background: "#0d0d0d",
+                  border: "1px solid #1a1a1a",
+                }}
+              >
+                <TimelineChart />
+              </div>
+
               <KGPanel
                 onStats={(nodes, edges) => {
                   setKgNodes(nodes);
