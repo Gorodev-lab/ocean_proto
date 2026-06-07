@@ -87,6 +87,12 @@ export default function OceanMap({
     legend.addTo(map);
 
     mapRef.current = map;
+
+    // ── Cleanup: remove map instance on unmount (React Strict Mode safe) ──
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
   }, []);
 
   // ── Auto-invalidate size on container resize ──────────────────────────────

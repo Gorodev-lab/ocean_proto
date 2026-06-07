@@ -359,8 +359,8 @@ export default function GraphVisualizer({
     const width = svgEl.clientWidth || 800;
     const height = svgEl.clientHeight || 600;
 
-    // Clone data for D3 force mutation safety
-    const nodes = originalNodes.map((n) => ({ ...n }));
+    // Clone data for D3 force mutation safety (structuredClone is faster than JSON.parse roundtrip)
+    const nodes: GraphNode[] = structuredClone(originalNodes);
     const links = originalLinks.map((l) => {
       const sId = typeof l.source === "string" ? l.source : (l.source as any).id;
       const tId = typeof l.target === "string" ? l.target : (l.target as any).id;

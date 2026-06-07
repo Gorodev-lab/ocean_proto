@@ -141,6 +141,27 @@ create policy "public read gap_events"      on gap_events      for select using 
 create policy "public read support_vessels" on support_vessels for select using (true);
 
 -- ============================================================
+-- RPC: get_bay_health (V2 Optimized — 4 focused sub-queries, limit 10)
+-- ============================================================
+create or replace function get_bay_health()
+returns json language sql stable as $$
+  select json_build_object(
+    'vessel_count',    (select count(*) from vessels),
+    'megafauna_count', (select count(*) from megafauna),
+    'gap_events',      (select count(*) from gap_events),
+    'top_hotspots',    (
+      select coalesce(json_agg(h), '[]'::json)
+      from (
+        select h3_index, ipa_100, ipa_level, risk_score
+        from risk_hotspots
+        order by ipa_100 desc
+        limit 10
+      ) h
+    )
+  )
+$$;
+
+-- ============================================================
 -- HELPER: GeoJSON FeatureCollection desde tabla
 -- ============================================================
 create or replace function get_risk_hotspots_geojson()
