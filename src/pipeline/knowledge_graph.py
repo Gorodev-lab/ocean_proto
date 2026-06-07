@@ -37,13 +37,13 @@ import json
 import logging
 import hashlib
 import time
-import requests
 import pandas as pd
 import networkx as nx
 import h3
 from shapely.geometry import Polygon
 from dotenv import load_dotenv
 from typing import Optional
+from src.pipeline._resilience import http_get
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -67,51 +67,40 @@ _iucn_cache: dict[str, str] = {}
 def _iucn_status(species_name: str) -> str:
     """
     Consulta el estado IUCN Red List de una especie.
-    Intenta primero la API v4 (más moderna), con fallback a v3.
-    Autenticación:
-      v4 → header  Authorization: Token <key>
-      v3 → query   ?token=<key>
+    Usa http_get con retry automático. Fallback v4 → v3.
     """
     if species_name in _iucn_cache:
         return _iucn_cache[species_name]
     if not IUCN_API_KEY:
         return "Unknown"
 
-    # ── Intento v4 ────────────────────────────────────────────────────────────
-    try:
-        encoded_name = species_name.replace(" ", "%20")
-        url_v4 = f"{IUCN_V4_BASE}/api/v4/taxa/scientific_name/{encoded_name}"
-        r = requests.get(
-            url_v4,
-            headers={"Authorization": f"Bearer {IUCN_API_KEY}"},
-            timeout=10,
-        )
-        if r.status_code == 200:
-            data = r.json()
-            # v4 devuelve taxon + assessments; el estado está en
-            # data['assessments'][0]['red_list_category']['code']
-            assessments = data.get("assessments", [])
-            if assessments:
-                code = (assessments[0]
-                        .get("red_list_category", {})
-                        .get("code", "Unknown"))
-                _iucn_cache[species_name] = code
-                return code
-    except Exception as e:
-        logger.debug(f"IUCN v4 falló para {species_name}: {e}")
+    encoded = species_name.replace(" ", "%20")
 
-    # ── Fallback v3 ───────────────────────────────────────────────────────────
-    try:
-        url_v3 = f"{IUCN_V3_BASE}/{species_name}?token={IUCN_API_KEY}"
-        r = requests.get(url_v3, timeout=10)
-        if r.status_code == 200:
-            result = r.json().get("result", [])
-            if result:
-                status = result[0].get("category", "Unknown")
-                _iucn_cache[species_name] = status
-                return status
-    except Exception as e:
-        logger.warning(f"IUCN v3 falló para {species_name}: {e}")
+    # Intento v4
+    data = http_get(
+        f"{IUCN_V4_BASE}/api/v4/taxa/scientific_name/{encoded}",
+        token=IUCN_API_KEY,
+        timeout=12,
+    )
+    if data:
+        assessments = data.get("assessments", [])
+        if assessments:
+            code = assessments[0].get("red_list_category", {}).get("code", "Unknown")
+            _iucn_cache[species_name] = code
+            return code
+
+    # Fallback v3
+    data = http_get(
+        f"{IUCN_V3_BASE}/{species_name}",
+        params={"token": IUCN_API_KEY},
+        timeout=12,
+    )
+    if data:
+        result = data.get("result", [])
+        if result:
+            status = result[0].get("category", "Unknown")
+            _iucn_cache[species_name] = status
+            return status
 
     _iucn_cache[species_name] = "Unknown"
     return "Unknown"
@@ -121,38 +110,33 @@ _vessel_cache: dict[str, dict] = {}
 
 def _enrich_vessel(mmsi: str) -> dict:
     """
-    Enriquece una detección SAR con datos de identidad de GFW (/v3/vessels/search).
-    Retorna dict con name, flag, imo, vessel_type_gfw.
+    Enriquece una detección SAR con datos de identidad GFW.
+    Usa http_get con retry automático.
     """
     if mmsi in _vessel_cache:
         return _vessel_cache[mmsi]
     if not GFW_API_TOKEN or mmsi == "unknown":
         return {}
-    try:
-        headers = {"Authorization": f"Bearer {GFW_API_TOKEN}"}
-        params  = {
-            "datasets": "public-global-vessel-identity:latest",
-            "query":    mmsi,
-            "limit":    1,
-        }
-        r = requests.get(f"{GFW_VESSEL_URL}/search",
-                         headers=headers, params=params, timeout=10)
-        if r.status_code == 200:
-            entries = r.json().get("entries", [])
-            if entries:
-                e = entries[0]
-                info = {
-                    "vessel_name": e.get("shipname", ""),
-                    "flag":        e.get("flag", ""),
-                    "imo":         str(e.get("imo", "")),
-                    "vessel_type_gfw": e.get("vesselType", ""),
-                }
-                _vessel_cache[mmsi] = info
-                return info
-    except Exception as ex:
-        logger.warning(f"GFW vessel lookup failed for MMSI {mmsi}: {ex}")
-    _vessel_cache[mmsi] = {}
-    return {}
+
+    data = http_get(
+        f"{GFW_VESSEL_URL}/search",
+        params={"datasets": "public-global-vessel-identity:latest", "query": mmsi, "limit": 1},
+        token=GFW_API_TOKEN,
+        timeout=12,
+    )
+    info: dict = {}
+    if data:
+        entries = data.get("entries", [])
+        if entries:
+            e = entries[0]
+            info = {
+                "vessel_name":    e.get("shipname", ""),
+                "flag":           e.get("flag", ""),
+                "imo":            str(e.get("imo", "")),
+                "vessel_type_gfw": e.get("vesselType", ""),
+            }
+    _vessel_cache[mmsi] = info
+    return info
 
 
 # ── Construcción del grafo ────────────────────────────────────────────────────
@@ -233,17 +217,17 @@ def build_knowledge_graph(
 
     # ── 1. Nodos HexCell desde hotspots_df ──────────────────────────────────
     if hotspots_df is not None and not hotspots_df.empty:
-        for _, row in hotspots_df.iterrows():
-            hid = str(row["h3_index"])
+        for row in hotspots_df.itertuples(index=False):
+            hid = str(row.h3_index)
             G.add_node(
                 hid,
                 type="HexCell",
                 h3_index=hid,
-                risk_score=int(row.get("risk_score", 0)),
-                vessel_count=int(row.get("vessel_count", 0)),
-                megafauna_count=int(row.get("megafauna_count", 0)),
+                risk_score=int(getattr(row, 'risk_score', 0) or 0),
+                vessel_count=int(getattr(row, 'vessel_count', 0) or 0),
+                megafauna_count=int(getattr(row, 'megafauna_count', 0) or 0),
             )
-        logger.info(f"  + {len(hotspots_df)} nodos HexCell agregados")
+        logger.info("  + %d nodos HexCell agregados", len(hotspots_df))
     else:
         logger.info("  ! hotspots_df vacío — los HexCell se crearán desde eventos")
 
@@ -251,10 +235,20 @@ def build_knowledge_graph(
     unique_mmsi = gfw_df["mmsi"].unique() if not gfw_df.empty else []
     vessel_identities: dict[str, dict] = {}
 
-    if enrich_vessels:
-        logger.info(f"  Enriqueciendo {len(unique_mmsi)} MMSI únicos contra GFW Identity...")
-        for mmsi in unique_mmsi:
-            vessel_identities[mmsi] = _enrich_vessel(str(mmsi))
+    if enrich_vessels and len(unique_mmsi) > 0:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        logger.info("  Enriqueciendo %d MMSI únicos contra GFW Identity (batch concurrente)...", len(unique_mmsi))
+        # Cap at 20 workers — respeta el rate limit de GFW
+        max_workers = min(20, len(unique_mmsi))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_enrich_vessel, str(m)): str(m) for m in unique_mmsi}
+            for fut in as_completed(futures):
+                mmsi_key = futures[fut]
+                try:
+                    vessel_identities[mmsi_key] = fut.result()
+                except Exception as exc:
+                    logger.warning("MMSI %s enrichment falló: %s", mmsi_key, exc)
+                    vessel_identities[mmsi_key] = {}
 
     vessel_event_count = 0
     for idx, row in gfw_df.iterrows():

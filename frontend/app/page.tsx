@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useOceanState } from "@/hooks/useOceanState";
 import { api } from "@/lib/api";
 import Header from "@/components/Header";
@@ -41,10 +41,28 @@ export default function HomePage() {
 
   // Layout states
   const [viewMode, setViewMode] = useState<"map" | "graph">("map");
+  const [isMobile, setIsMobile] = useState(false);
+  // Sidebars collapsed by default on mobile, open on desktop
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
+
+  // Detect mobile viewport and default sidebars closed on small screens
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      const mobile = e.matches;
+      setIsMobile(mobile);
+      if (mobile) {
+        setLeftSidebarOpen(false);
+        setRightSidebarOpen(false);
+      }
+    };
+    handleChange(mq); // run immediately on mount
+    mq.addEventListener("change", handleChange);
+    return () => mq.removeEventListener("change", handleChange);
+  }, []);
 
   const handleCounts = useCallback(
     (partial: Partial<LayerCounts>) => {
@@ -154,7 +172,9 @@ export default function HomePage() {
           onClick={() => setLeftSidebarOpen((o) => !o)}
           title={leftSidebarOpen ? "Colapsar Panel Izquierdo" : "Expandir Panel Izquierdo"}
           aria-label={leftSidebarOpen ? "Colapsar Izquierda" : "Expandir Izquierda"}
-          style={{ left: leftSidebarOpen ? "294px" : "14px" }}
+          // On desktop: nudge button to follow the open sidebar edge.
+          // On mobile: CSS media query fixes position — no inline override needed.
+          style={!isMobile ? { left: leftSidebarOpen ? "294px" : "14px" } : undefined}
         >
           {leftSidebarOpen ? "◀" : "▶"}
         </button>
@@ -205,7 +225,9 @@ export default function HomePage() {
           onClick={() => setRightSidebarOpen((o) => !o)}
           title={rightSidebarOpen ? "Colapsar Panel Derecho" : "Expandir Panel Derecho"}
           aria-label={rightSidebarOpen ? "Colapsar Derecha" : "Expandir Derecha"}
-          style={{ right: rightSidebarOpen ? "374px" : "14px" }}
+          // On desktop: nudge button to follow the open sidebar edge.
+          // On mobile: CSS media query fixes position — no inline override needed.
+          style={!isMobile ? { right: rightSidebarOpen ? "374px" : "14px" } : undefined}
         >
           {rightSidebarOpen ? "▶" : "◀"}
         </button>

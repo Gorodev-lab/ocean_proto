@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 geopandas
 pandas
 shapely
@@ -7,13 +7,20 @@ h3
 pyarrow
 pydantic
 python-dotenv
-requests
 networkx
-graphifyy
-# Nuevas dependencias — criterios oceanográficos
+
+# HTTP — reemplaza requests; versión sync para pipeline, async para FastAPI
+httpx[http2]>=0.27.0
+
+# Retry con exponential backoff
+tenacity>=8.3.0
+
+# Serialización rápida (opcional pero muy recomendado)
+orjson>=3.9.0
+
+# Datos espaciales
 numpy
 scipy
-# erddapy  # opcional: cliente Python para ERDDAP (usamos URLs directas en vez)
 
-# Gemini AI integration
-google-generativeai>=0.8.0
+# Gemini AI
+google-genai>=1.0.0

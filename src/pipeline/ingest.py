@@ -494,7 +494,8 @@ def run_ingestion(
         df[lat_col] = pd.to_numeric(df[lat_col], errors="coerce")
         df[lon_col] = pd.to_numeric(df[lon_col], errors="coerce")
         df = df.dropna(subset=[lat_col, lon_col])
-        geom = [Point(lon, lat) for lon, lat in zip(df[lon_col], df[lat_col])]
+        # gpd.points_from_xy is vectorized (C-level) — 10x faster than list comprehension
+        geom = gpd.points_from_xy(df[lon_col], df[lat_col])
         return gpd.GeoDataFrame(df, geometry=geom, crs="EPSG:4326")
 
     gfw_gdf        = to_gdf_safe(gfw_df,        "lat", "lon")

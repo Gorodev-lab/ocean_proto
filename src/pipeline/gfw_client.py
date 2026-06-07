@@ -1,9 +1,9 @@
 import os
 import json
 import time
-import requests
 import logging
 from dotenv import load_dotenv
+from src.pipeline._resilience import http_get, http_post
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -63,35 +63,27 @@ def fetch_live_vessels(bbox: tuple) -> list:
     all_records = []
     
     try:
-        # Paginación simplificada
         while True:
-            response = requests.get(GFW_API_URL, headers=headers, params=params, timeout=15)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # GFW V3 devuelve el array usualmente en 'entries'
+            data = http_get(GFW_API_URL, params=params, token=token, timeout=20)
+            if data is None:
+                break  # _resilience ya logueó el error
+
             entries = data.get('entries', []) if isinstance(data, dict) else data
             if not entries:
                 break
-                
             all_records.extend(entries)
-            
-            # Control de paginación
-            if isinstance(data, dict) and data.get('next') and params['offset'] < 200: # limitante arbitratia para MVP
+
+            if isinstance(data, dict) and data.get('next') and params['offset'] < 200:
                 params['offset'] += params['limit']
             else:
                 break
-                
-        # 3. Guardar en caché
+
         with open(CACHE_FILE, 'w') as f:
             json.dump(all_records, f)
-            
         return all_records
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error en la solicitud a GFW API. Recurriendo a último caché disponible si existe. Detalles: {str(e)}")
-        # Manejo resiliente
+    except Exception as e:
+        logger.error("Error inesperado en fetch_live_vessels: %s", e)
         if os.path.exists(CACHE_FILE):
             try:
                 with open(CACHE_FILE, 'r') as f:
@@ -102,47 +94,24 @@ def fetch_live_vessels(bbox: tuple) -> list:
 
 def search_passenger_and_tanker_vessels() -> list:
     """
-    Función que implementa exactamente la analogía del "Mesero" para buscar
-    Megacruceros y Tankers usando el endpoint de búsqueda.
+    Busca Megacruceros y Tankers en el dataset de identidad GFW.
+    Retorna lista de entradas o [] si falla.
     """
     token = os.environ.get("GFW_API_TOKEN")
     if not token:
-        logger.warning("No se encontró el pase VIP (GFW_API_TOKEN) en el entorno.")
+        logger.warning("[Vessel Search] GFW_API_TOKEN no disponible.")
         return []
 
     url = "https://gateway.api.globalfishingwatch.org/v3/vessels/search"
-    
-    # 3. Tu orden (Los parámetros / filtros)
-    parametros = {
+    params = {
         "datasets": "public-global-vessel-identity:latest",
-        "query": "vesselClass:passenger OR vesselClass:tanker",
-        "limit": 50
+        "query":    "vesselClass:passenger OR vesselClass:tanker",
+        "limit":    50,
     }
-
-    # 4. Preparando el sobre con tu pase VIP
-    cabeceras = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    logger.info("El mesero va a la cocina con la orden...")
-    
-    try:
-        # 5. Hacer la llamada a la API
-        respuesta = requests.get(url, headers=cabeceras, params=parametros, timeout=15)
-        
-        # 6. Recibir los datos
-        if respuesta.status_code == 200:
-            datos = respuesta.json()
-            logger.info("¡Datos de cruceros y tankers recibidos exitosamente!")
-            return datos.get('entries', [])
-        else:
-            logger.error(f"Hubo un error al llamar al mesero: {respuesta.status_code} - {respuesta.text}")
-            return []
-            
-    except requests.exceptions.RequestException as e:
-        logger.error(f"El mesero resbaló: {str(e)}")
+    data = http_get(url, params=params, token=token, timeout=20)
+    if not data:
         return []
+    return data.get("entries", [])
 
 
 # ================================================================
@@ -245,56 +214,45 @@ def _fetch_boem_platforms(bbox: tuple | None) -> list[dict]:
     }
 
     all_features: list[dict] = []
-    try:
-        logger.info("[BOEM] Descargando plataformas O&G del Gulf of Mexico (GeoJSON)...")
-        r = requests.get(url, params=params, timeout=60)
-        if r.status_code != 200:
-            logger.warning(
-                f"[BOEM] Error {r.status_code} descargando dataset GeoJSON. "
-                f"Respuesta: {r.text[:200]}"
-            )
-            return []
-        r.raise_for_status()
-        data = r.json()
+    logger.info("[BOEM] Descargando plataformas O&G del Gulf of Mexico (GeoJSON)...")
+    data = http_get(url, params=params, timeout=60)
+    if not data:
+        return []
 
-        features = data.get("features", [])
-        logger.info(f"[BOEM] {len(features)} plataformas en GeoJSON crudo.")
+    features = data.get("features", [])
+    logger.info("[BOEM] %d plataformas en GeoJSON crudo.", len(features))
 
-        for feat in features:
-            props = feat.get("properties", {})
-            geom  = feat.get("geometry", {})
-            coords = geom.get("coordinates", []) if geom else []
-            if not coords or len(coords) < 2:
-                continue
-            try:
-                lon, lat = float(coords[0]), float(coords[1])
-            except (TypeError, ValueError):
+    for feat in features:
+        props = feat.get("properties", {})
+        geom  = feat.get("geometry", {})
+        coords = geom.get("coordinates", []) if geom else []
+        if not coords or len(coords) < 2:
+            continue
+        try:
+            lon, lat = float(coords[0]), float(coords[1])
+        except (TypeError, ValueError):
+            continue
+
+        if bbox:
+            min_lon, min_lat, max_lon, max_lat = bbox
+            if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
                 continue
 
-            # Filtrar por bbox si se especificó
-            if bbox:
-                min_lon, min_lat, max_lon, max_lat = bbox
-                if not (min_lat <= lat <= max_lat and min_lon <= lon <= max_lon):
-                    continue
+        all_features.append({
+            "platform_id":     str(props.get("OBJECTID", "") or props.get("objectid", "")),
+            "lat":             lat,
+            "lon":             lon,
+            "category":        "OIL",
+            "label":           str(props.get("STRUCT_TYPE", "") or props.get("struct_type", "")),
+            "sub_category":    "BOEM_GOM",
+            "first_timestamp": str(props.get("INSTALL_DATE", "") or ""),
+            "last_timestamp":  str(props.get("REMOVAL_DATE", "") or ""),
+            "source":          "BOEM_arcgis",
+        })
 
-            all_features.append({
-                "platform_id":     str(props.get("OBJECTID", "") or
-                                       props.get("objectid", "")),
-                "lat":             lat,
-                "lon":             lon,
-                "category":        "OIL",
-                "label":           str(props.get("STRUCT_TYPE", "") or
-                                       props.get("struct_type", "")),
-                "sub_category":    "BOEM_GOM",
-                "first_timestamp": str(props.get("INSTALL_DATE", "") or ""),
-                "last_timestamp":  str(props.get("REMOVAL_DATE", "") or ""),
-                "source":          "BOEM_arcgis",
-            })
-
-        logger.info(f"[BOEM] {len(all_features)} plataformas tras filtro bbox.")
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"[BOEM] Error de red al descargar plataformas BOEM: {e}")
+    logger.info("[BOEM] %d plataformas tras filtro bbox.", len(all_features))
     return all_features
+
 
 
 def _load_gfw_manual_csv(bbox: tuple | None) -> list[dict]:
@@ -427,9 +385,9 @@ def fetch_support_vessels(
                 f"[Support Vessels] Buscando OSVs "
                 f"(offset={params['offset']})..."
             )
-            r = requests.get(url, headers=headers, params=params, timeout=20)
-            r.raise_for_status()
-            data = r.json()
+            data = http_get(url, params=params, token=token, timeout=20)
+            if data is None:
+                break
 
             entries = data.get("entries", [])
             if not entries:
@@ -477,17 +435,10 @@ def fetch_support_vessels(
         # Guardar en caché
         with open(SUPPORT_VESSELS_CACHE, "w") as f:
             json.dump(all_vessels, f, indent=2)
-        logger.info(
-            f"[Support Vessels] {len(all_vessels)} buques OSV encontrados."
-        )
+        logger.info("[Support Vessels] %d buques OSV encontrados.", len(all_vessels))
 
-    except requests.exceptions.HTTPError as e:
-        logger.error(
-            f"[Support Vessels] HTTP {e.response.status_code}: "
-            f"{e.response.text[:200]}"
-        )
-    except requests.exceptions.RequestException as e:
-        logger.error(f"[Support Vessels] Error de red: {e}")
+    except Exception as exc:
+        logger.error("[Support Vessels] Error inesperado: %s", exc)
 
     return all_vessels
 
@@ -567,9 +518,9 @@ def fetch_gap_events(
                 f"[GAP Events] Consultando gaps AIS "
                 f"(offset={params['offset']}, {start_date}→{end_date})..."
             )
-            r = requests.get(url, headers=headers, params=params, timeout=25)
-            r.raise_for_status()
-            data = r.json()
+            data = http_get(url, params=params, token=token, timeout=25)
+            if data is None:
+                break
 
             entries = data.get("entries", [])
             if not entries:
@@ -628,13 +579,8 @@ def fetch_gap_events(
             f"[GAP Events] {len(all_gaps)} gaps AIS ≥ {min_gap_hours}h encontrados."
         )
 
-    except requests.exceptions.HTTPError as e:
-        logger.error(
-            f"[GAP Events] HTTP {e.response.status_code}: "
-            f"{e.response.text[:200]}"
-        )
-    except requests.exceptions.RequestException as e:
-        logger.error(f"[GAP Events] Error de red: {e}")
+    except Exception as exc:
+        import logging as _lg; _lg.getLogger(__name__).error("Pipeline error: %s", exc)
 
     return all_gaps
 
@@ -736,12 +682,9 @@ def fetch_presence_heatmap(
             f"[4Wings Heatmap] Solicitando presencia "
             f"({start_date} → {end_date}, group={group_by})..."
         )
-        r = requests.post(
-            url, headers=headers, params=query_params,
-            json=body, timeout=60
-        )
-        r.raise_for_status()
-        raw = r.json()
+        raw = http_post(url, json=body, params=query_params, token=token, timeout=60)
+        if raw is None:
+            return all_cells
 
         # La respuesta puede ser lista de entradas o dict con entries
         entries = raw if isinstance(raw, list) else raw.get("entries", [raw])
@@ -767,13 +710,8 @@ def fetch_presence_heatmap(
             f"[4Wings Heatmap] {len(all_cells)} celdas de presencia obtenidas."
         )
 
-    except requests.exceptions.HTTPError as e:
-        logger.error(
-            f"[4Wings Heatmap] HTTP {e.response.status_code}: "
-            f"{e.response.text[:300]}"
-        )
-    except requests.exceptions.RequestException as e:
-        logger.error(f"[4Wings Heatmap] Error de red: {e}")
+    except Exception as exc:
+        import logging as _lg; _lg.getLogger(__name__).error("Pipeline error: %s", exc)
 
     return all_cells
 
@@ -840,9 +778,9 @@ def fetch_encounter_events(
                 f"[Encounters] Consultando encounters "
                 f"(offset={params['offset']})..."
             )
-            r = requests.get(url, headers=headers, params=params, timeout=25)
-            r.raise_for_status()
-            data = r.json()
+            data = http_get(url, params=params, token=token, timeout=25)
+            if data is None:
+                break
 
             entries = data.get("entries", [])
             if not entries:
@@ -892,10 +830,8 @@ def fetch_encounter_events(
             json.dump(all_encounters, f, indent=2)
         logger.info(f"[Encounters] {len(all_encounters)} encuentros encontrados.")
 
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"[Encounters] HTTP {e.response.status_code}: {e.response.text[:200]}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"[Encounters] Error de red: {e}")
+    except Exception as exc:
+        import logging as _lg; _lg.getLogger(__name__).error("Pipeline error: %s", exc)
 
     return all_encounters
 
@@ -963,9 +899,9 @@ def fetch_loitering_events(
                 f"[Loitering] Consultando loitering "
                 f"(offset={params['offset']})..."
             )
-            r = requests.get(url, headers=headers, params=params, timeout=25)
-            r.raise_for_status()
-            data = r.json()
+            data = http_get(url, params=params, token=token, timeout=25)
+            if data is None:
+                break
 
             entries = data.get("entries", [])
             if not entries:
@@ -1014,10 +950,8 @@ def fetch_loitering_events(
             json.dump(all_loitering, f, indent=2)
         logger.info(f"[Loitering] {len(all_loitering)} eventos de merodeo encontrados.")
 
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"[Loitering] HTTP {e.response.status_code}: {e.response.text[:200]}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"[Loitering] Error de red: {e}")
+    except Exception as exc:
+        import logging as _lg; _lg.getLogger(__name__).error("Pipeline error: %s", exc)
 
     return all_loitering
 
@@ -1102,12 +1036,9 @@ def fetch_fishing_effort_report(
             f"[Fishing Effort] Solicitando esfuerzo pesquero "
             f"({start_date} → {end_date}, group={group_by})..."
         )
-        r = requests.post(
-            url, headers=headers, params=query_params,
-            json=body, timeout=60
-        )
-        r.raise_for_status()
-        raw = r.json()
+        raw = http_post(url, json=body, params=query_params, token=token, timeout=60)
+        if raw is None:
+            return all_cells
 
         entries = raw if isinstance(raw, list) else raw.get("entries", [raw])
 
@@ -1128,9 +1059,7 @@ def fetch_fishing_effort_report(
             json.dump(all_cells, f, indent=2)
         logger.info(f"[Fishing Effort] {len(all_cells)} celdas de esfuerzo pesquero.")
 
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"[Fishing Effort] HTTP {e.response.status_code}: {e.response.text[:300]}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"[Fishing Effort] Error de red: {e}")
+    except Exception as exc:
+        import logging as _lg; _lg.getLogger(__name__).error("Pipeline error: %s", exc)
 
     return all_cells
